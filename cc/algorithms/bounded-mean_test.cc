@@ -19,6 +19,7 @@
 #include <limits.h>
 
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -26,13 +27,11 @@
 #include <utility>
 #include <vector>
 
-#include <cstdint>
-#include "base/logging.h"
 #include "base/testing/proto_matchers.h"
 #include "base/testing/status_matchers.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/memory/memory.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "algorithms/approx-bounds.h"
@@ -134,7 +133,7 @@ TYPED_TEST(BoundedMeanTest, RepeatedResultTest) {
 
   auto mean1 =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(1.0)
           .SetLower(1)
           .SetUpper(9)
@@ -143,7 +142,7 @@ TYPED_TEST(BoundedMeanTest, RepeatedResultTest) {
 
   auto mean2 =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(1.0)
           .SetLower(1)
           .SetUpper(9)
@@ -181,7 +180,7 @@ TYPED_TEST(BoundedMeanTest, BasicMultipleEntriesTest) {
   std::vector<TypeParam> a = {1, 2, 3, 4, 5};
   auto mean =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(1)
           .SetUpper(5)
           .Build();
@@ -198,7 +197,7 @@ TYPED_TEST(BoundedMeanTest, BasicMultipleEntriesTest) {
 TEST(BoundedMeanTest, AddMultipleEntriesInvalidInputTest) {
   auto mean =
       typename BoundedMean<float>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(-5)
           .SetUpper(5)
           .Build();
@@ -214,7 +213,7 @@ TEST(BoundedMeanTest, AddMultipleEntriesInvalidInputTest) {
 TYPED_TEST(BoundedMeanTest, AddMultipleEntriesInvalidNumberOfEntriesTest) {
   auto mean =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(-5)
           .SetUpper(5)
           .Build();
@@ -223,7 +222,7 @@ TYPED_TEST(BoundedMeanTest, AddMultipleEntriesInvalidNumberOfEntriesTest) {
   (*mean)->AddEntry(4);
 
   std::vector<int64_t> invalid_entries{0, -1,
-                                     std::numeric_limits<int64_t>::lowest()};
+                                       std::numeric_limits<int64_t>::lowest()};
   for (int64_t n_entries : invalid_entries) {
     BoundedMeanTestPeer::AddMultipleEntries<TypeParam>(1, n_entries,
                                                        mean.value().get());
@@ -277,7 +276,7 @@ TYPED_TEST(BoundedMeanTest, InsufficientPrivacyBudgetTest) {
 
   auto mean =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(1.0)
           .SetLower(1)
           .SetUpper(9)
@@ -349,11 +348,11 @@ TYPED_TEST(BoundedMeanTest, LargeEpsilonTest) {
 TYPED_TEST(BoundedMeanTest, PropagateApproxBoundsError) {
   auto bm =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bm);
 
-  // Automatic bounds are needed but there is no input, so the count-threshhold
+  // Automatic bounds are needed but there is no input, so the count-threshold
   // should exceed any bin count.
   EXPECT_THAT((*bm)->PartialResult(),
               StatusIs(absl::StatusCode::kFailedPrecondition,
@@ -393,7 +392,7 @@ TEST(BoundedMeanTest, OverflowRawCountTest) {
 
   absl::StatusOr<std::unique_ptr<BoundedMean<double>>> bm =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(-10)
           .SetUpper(10)
           .Build();
@@ -423,7 +422,7 @@ TEST(BoundedMeanTest, OverflowCountFromAddNoiseTypeCast) {
 
     absl::StatusOr<std::unique_ptr<BoundedMean<double>>> bm =
         builder
-            .SetLaplaceMechanism(absl::make_unique<LaplaceMechanism::Builder>())
+            .SetLaplaceMechanism(std::make_unique<LaplaceMechanism::Builder>())
             .SetLower(-kBound)
             .SetUpper(kBound)
             .Build();
@@ -449,7 +448,7 @@ TEST(BoundedMeanTest, OverflowAddMultipleEntriesManualBoundsTest) {
 
   absl::StatusOr<std::unique_ptr<BoundedMean<int64_t>>> bm =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(-std::numeric_limits<int64_t>::max() / 2)
           .SetUpper(std::numeric_limits<int64_t>::max() / 2)
           .Build();
@@ -470,7 +469,7 @@ TEST(BoundedMeanTest, OverflowAddEntryManualBoundsTest) {
 
   absl::StatusOr<std::unique_ptr<BoundedMean<int64_t>>> bm =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(0)
           .SetUpper(std::numeric_limits<int64_t>::max())
           .Build();
@@ -491,7 +490,7 @@ TEST(BoundedMeanTest, UnderflowAddEntryManualBoundsTest) {
 
   absl::StatusOr<std::unique_ptr<BoundedMean<int64_t>>> bm =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(std::numeric_limits<int64_t>::lowest() + 1)
           .SetUpper(0)
           .Build();
@@ -514,7 +513,7 @@ TEST(BoundedMeanTest, OverflowRawCountMergeManualBoundsTest) {
 
   absl::StatusOr<std::unique_ptr<BoundedMean<double>>> bm =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(-10)
           .SetUpper(10)
           .Build();
@@ -555,7 +554,7 @@ TEST(BoundedMeanTest, OverflowMergeManualBoundsTest) {
 
   absl::StatusOr<std::unique_ptr<BoundedMean<int64_t>>> bm =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(0)
           .SetUpper(std::numeric_limits<int64_t>::max())
           .Build();
@@ -589,7 +588,7 @@ TEST(BoundedMeanTest, UnderflowMergeManualBoundsTest) {
 
   absl::StatusOr<std::unique_ptr<BoundedMean<int64_t>>> bm =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(std::numeric_limits<int64_t>::lowest() + 1)
           .SetUpper(0)
           .Build();
@@ -625,7 +624,7 @@ TYPED_TEST(BoundedMeanTest, SerializeMergeTest) {
 
   auto bm1 =
       builder
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetLower(0)
           .SetUpper(3)
           .Build();
@@ -653,13 +652,13 @@ TYPED_TEST(BoundedMeanTest, SerializeMergePartialSumsTest) {
       typename ApproxBounds<TypeParam>::Builder()
           .SetThresholdForTest(0.5)
           .SetNumBins(10)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(kDefaultEpsilon / 2)
           .Build();
   ASSERT_OK(bounds);
   auto bm1 =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetApproxBounds(std::move(bounds).value())
           .SetEpsilon(kDefaultEpsilon)
           .Build();
@@ -674,13 +673,13 @@ TYPED_TEST(BoundedMeanTest, SerializeMergePartialSumsTest) {
       typename ApproxBounds<TypeParam>::Builder()
           .SetThresholdForTest(0.5)
           .SetNumBins(10)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(kDefaultEpsilon / 2)
           .Build();
   ASSERT_OK(bounds2);
   auto bm2 =
       typename BoundedMean<TypeParam>::Builder()
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetApproxBounds(std::move(bounds2).value())
           .SetEpsilon(kDefaultEpsilon)
           .Build();
@@ -704,7 +703,7 @@ TYPED_TEST(BoundedMeanTest, AutomaticBoundsNegative) {
           .SetBase(2)
           .SetScale(1)
           .SetThresholdForTest(1.5)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(kDefaultEpsilon / 2)
           .Build();
   ASSERT_OK(bounds);
@@ -712,7 +711,7 @@ TYPED_TEST(BoundedMeanTest, AutomaticBoundsNegative) {
       typename BoundedMean<TypeParam>::Builder()
           .SetEpsilon(kDefaultEpsilon)
           .SetApproxBounds(std::move(bounds).value())
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bm);
   (*bm)->AddEntries(a.begin(), a.end());
@@ -743,14 +742,14 @@ TYPED_TEST(BoundedMeanTest, AutomaticBoundsPositive) {
           .SetBase(2)
           .SetScale(1)
           .SetThresholdForTest(1.5)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(kDefaultEpsilon / 2)
           .Build();
   ASSERT_OK(bounds);
   auto bm =
       typename BoundedMean<TypeParam>::Builder()
           .SetApproxBounds(std::move(bounds).value())
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(kDefaultEpsilon)
           .Build();
   ASSERT_OK(bm);
@@ -804,7 +803,7 @@ TEST(BoundedMeanTest, SensitivityOverflowApproxBounds) {
       ApproxBounds<int>::Builder()
           .SetEpsilon(0.5)
           .SetThresholdForTest(0.5)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bounds);
   auto bm = BoundedMean<int>::Builder()
@@ -838,14 +837,14 @@ TYPED_TEST(BoundedMeanTest, AutomaticBoundsContainZero) {
           .SetBase(2)
           .SetScale(1)
           .SetThresholdForTest(2)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bounds);
   auto bm =
       typename BoundedMean<TypeParam>::Builder()
           .SetEpsilon(1)
           .SetApproxBounds(std::move(bounds).value())
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bm);
   (*bm)->AddEntries(a.begin(), a.end());
@@ -872,7 +871,7 @@ TYPED_TEST(BoundedMeanTest, AutomaticBoundsDefault) {
   auto bm =
       typename BoundedMean<TypeParam>::Builder()
           .SetEpsilon(1)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bm);
   std::vector<TypeParam> big(1000, 10);
@@ -919,14 +918,14 @@ TYPED_TEST(BoundedMeanTest, AutomaticBoundsZero) {
           .SetBase(2)
           .SetScale(1)
           .SetThresholdForTest(1.5)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bounds);
   auto bm =
       typename BoundedMean<TypeParam>::Builder()
           .SetEpsilon(1)
           .SetApproxBounds(std::move(bounds).value())
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bm);
   (*bm)->AddEntries(a.begin(), a.end());
@@ -956,7 +955,7 @@ TYPED_TEST(BoundedMeanTest, Reset) {
           .SetNumBins(3)
           .SetBase(10)
           .SetScale(1)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetThresholdForTest(0.5)
           .SetEpsilon(kDefaultEpsilon / 2)
           .Build();
@@ -964,7 +963,7 @@ TYPED_TEST(BoundedMeanTest, Reset) {
   auto bm =
       typename BoundedMean<TypeParam>::Builder()
           .SetApproxBounds(std::move(bounds).value())
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .SetEpsilon(kDefaultEpsilon)
           .Build();
   ASSERT_OK(bm);

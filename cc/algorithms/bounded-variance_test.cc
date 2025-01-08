@@ -17,22 +17,21 @@
 #include "algorithms/bounded-variance.h"
 
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
 #include <numeric>
 #include <random>
-#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
-#include <cstdint>
-#include "base/logging.h"
 #include "base/testing/proto_matchers.h"
 #include "base/testing/status_matchers.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
+#include "absl/log/check.h"
 #include "absl/memory/memory.h"
 #include "absl/random/distributions.h"
 #include "absl/status/status.h"
@@ -180,7 +179,7 @@ TYPED_TEST(BoundedVarianceTest, AddMultipleEntriesInvalidNumberOfEntriesTest) {
   }
 
   std::vector<int64_t> invalid_entries{0, -1,
-                                     std::numeric_limits<int64_t>::lowest()};
+                                       std::numeric_limits<int64_t>::lowest()};
   for (int64_t n_entries : invalid_entries) {
     BoundedVarianceTestPeer::AddMultipleEntries<TypeParam>(1, n_entries,
                                                            (*bv).get());

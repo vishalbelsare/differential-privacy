@@ -17,18 +17,20 @@
 #ifndef DIFFERENTIAL_PRIVACY_CPP_ALGORITHMS_QUANTILE_TREE_H_
 #define DIFFERENTIAL_PRIVACY_CPP_ALGORITHMS_QUANTILE_TREE_H_
 
+#include <algorithm>
 #include <cmath>
-#include <cstdlib>
+#include <cstdint>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <unordered_map>
+#include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "algorithms/algorithm.h"
-#include "algorithms/bounded-algorithm.h"
+#include "absl/strings/str_cat.h"
 #include "algorithms/internal/count-tree.h"
 #include "algorithms/numerical-mechanisms.h"
-#include "proto/util.h"
 #include "proto/confidence-interval.pb.h"
 #include "proto/summary.pb.h"
 #include "base/status_macros.h"
@@ -540,6 +542,23 @@ class QuantileTree<T>::Builder {
           "Lower and upper bounds must both be set.");
     }
 
+    // Ensure (upper - lower) does not overflow.
+    if constexpr (std::is_floating_point_v<T>) {
+      if (!std::isfinite(upper_.value() - lower_.value())) {
+        return absl::InvalidArgumentError(absl::StrCat(
+            "Upper and lower bounds failed floating point overflow check: "
+            "upper - lower must be finite, but is ",
+            upper_.value() - lower_.value()));
+      }
+    } else {
+      if (lower_.value() < 0 &&
+          upper_.value() > std::numeric_limits<T>::max() + lower_.value()) {
+        return absl::InvalidArgumentError(
+            "Upper and lower bounds failed signed integer overflow check for "
+            "upper - lower");
+      }
+    }
+
     if (tree_height_.value() < 1) {
       return absl::InvalidArgumentError(absl::StrCat(
           "Tree height must be at least 1, but was ", tree_height_.value()));
@@ -561,10 +580,10 @@ class QuantileTree<T>::Builder {
   }
 
  private:
-  absl::optional<int> tree_height_;
-  absl::optional<int> branching_factor_;
-  absl::optional<T> lower_;
-  absl::optional<T> upper_;
+  std::optional<int> tree_height_;
+  std::optional<int> branching_factor_;
+  std::optional<T> lower_;
+  std::optional<T> upper_;
 };
 }  // namespace differential_privacy
 

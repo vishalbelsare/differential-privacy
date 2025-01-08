@@ -19,25 +19,24 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <limits>
 #include <memory>
 #include <optional>
-#include <string>
 #include <type_traits>
 #include <utility>
 #include <vector>
 
-#include <cstdint>
-#include "base/logging.h"
 #include "google/protobuf/any.pb.h"
+#include "absl/log/check.h"
+#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "algorithms/algorithm.h"
 #include "algorithms/approx-bounds.h"
-#include "algorithms/bounded-algorithm.h"
 #include "algorithms/numerical-mechanisms.h"
 #include "algorithms/util.h"
 #include "proto/util.h"
@@ -428,7 +427,7 @@ class BoundedVarianceWithApproxBounds : public BoundedVariance<T> {
   }
 
   // Returns a pointer to the ApproxBounds object.  Does not transfer
-  // ownsership.  Only use for testing.
+  // ownership.  Only use for testing.
   ApproxBounds<T>* GetApproxBoundsForTesting() { return approx_bounds_.get(); }
 
  private:
@@ -634,10 +633,10 @@ class BoundedVariance<T>::Builder {
   }
 
  private:
-  absl::optional<double> epsilon_;
+  std::optional<double> epsilon_;
   double delta_ = 0;
-  absl::optional<T> upper_;
-  absl::optional<T> lower_;
+  std::optional<T> upper_;
+  std::optional<T> lower_;
   int max_partitions_contributed_ = 1;
   int max_contributions_per_partition_ = 1;
   std::unique_ptr<NumericalMechanismBuilder> mechanism_builder_ =

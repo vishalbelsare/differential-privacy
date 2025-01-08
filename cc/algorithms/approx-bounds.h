@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -30,18 +31,27 @@
 #include <utility>
 #include <vector>
 
-#include <cstdint>
 #include "google/protobuf/any.pb.h"
+#include "absl/log/log.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/cord.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "algorithms/algorithm.h"
 #include "algorithms/numerical-mechanisms.h"
 #include "algorithms/util.h"
 #include "proto/util.h"
+#include "proto/data.pb.h"
 #include "base/status_macros.h"
 
 namespace differential_privacy {
+
+// This URL is added as payload to the error returned from GenerateResult in
+// case there was not enough data to provide approximate bounds.
+inline constexpr absl::string_view kApproxBoundsNotEnoughDataUrl =
+    "type.googleapis.com/differential_privacy.ApproxBoundsNotEnoughData";
 
 // Find the approximate bounds of a set of numbers using logarithmic histogram
 // bins. Like other algorithms, ApproxBounds assumes that it only gets one input
@@ -145,10 +155,10 @@ class ApproxBounds : public Algorithm<T> {
 
   int64_t MemoryUsed() override {
     int64_t memory = sizeof(ApproxBounds<T>) +
-                   sizeof(int64_t) * neg_bins_.capacity() +
-                   sizeof(int64_t) * pos_bins_.capacity() +
-                   sizeof(T) * noisy_neg_bins_.capacity() +
-                   sizeof(T) * noisy_pos_bins_.capacity();
+                     sizeof(int64_t) * neg_bins_.capacity() +
+                     sizeof(int64_t) * pos_bins_.capacity() +
+                     sizeof(T) * noisy_neg_bins_.capacity() +
+                     sizeof(T) * noisy_pos_bins_.capacity();
     if (mechanism_) {
       memory += mechanism_->MemoryUsed();
     }
@@ -331,6 +341,10 @@ class ApproxBounds : public Algorithm<T> {
   // Returns an output containing approximate min as the first element and
   // approximate max as the second element. If not enough inputs exist to pass
   // the threshold, populate the output with an error status.
+  //
+  // In case there was not enough data, an empty payload will be added to the
+  // error returned from the method.  The URL of this payload is defined in
+  // kApproxBoundsNotEnoughDataUrl.
   absl::StatusOr<Output> GenerateResult(double noise_interval_level) override {
     // Populate noisy versions of the histogram bins.
     noisy_pos_bins_ = AddNoise(pos_bins_);
@@ -362,10 +376,12 @@ class ApproxBounds : public Algorithm<T> {
 
     // Record error status if approx min or max was not found.
     if (!output.has_value() || output->elements_size() < 2) {
-      return absl::FailedPreconditionError(
+      absl::Status result = absl::FailedPreconditionError(
           "Bin count threshold was too large to find approximate "
           "bounds. Either run over a larger dataset or decrease "
           "success_probability and try again.");
+      result.SetPayload(kApproxBoundsNotEnoughDataUrl, absl::Cord());
+      return result;
     }
 
     return *output;
@@ -497,7 +513,7 @@ class ApproxBounds : public Algorithm<T> {
   }
 
   // Add noise to each member of bins and return noisy vector.
-  const std::vector<T> AddNoise(const std::vector<int64_t>& bins) {
+  std::vector<T> AddNoise(const std::vector<int64_t>& bins) {
     std::vector<T> noisy_bins(bins.size());
     for (int i = 0; i < bins.size(); ++i) {
       noisy_bins[i] = mechanism_->AddNoise(bins[i]);
@@ -642,7 +658,7 @@ class ApproxBounds : public Algorithm<T> {
   double base_;
 
   // The desired probability that, when the dataset is empty, no bin counts are
-  // above the threshold for determing whether a bin is empty.
+  // above the threshold for determining whether a bin is empty.
   double success_probability_;
 
   // The minimum allowed success probability when relaxing the success
@@ -795,13 +811,13 @@ class ApproxBounds<T>::Builder {
     }
   }
 
-  absl::optional<double> epsilon_;
+  std::optional<double> epsilon_;
   int max_partitions_contributed_ = 1;
   int max_contributions_per_partition_ = 1;
   std::unique_ptr<NumericalMechanismBuilder> mechanism_builder_ =
       absl::make_unique<LaplaceMechanism::Builder>();
 
-  absl::optional<double> threshold_;
+  std::optional<double> threshold_;
   double scale_ = DefaultScaleForT();
   double base_ = 2.0;
   double success_probability_ = 1 - std::pow(10, -9);

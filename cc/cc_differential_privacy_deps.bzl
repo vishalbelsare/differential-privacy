@@ -17,7 +17,6 @@
 """ Declares dependencies of the differential privacy library """
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 
 def cc_differential_privacy_deps():
     """ Macro to include the differential privacy library's critical dependencies in a WORKSPACE.
@@ -27,65 +26,62 @@ def cc_differential_privacy_deps():
     # Abseil
     http_archive(
         name = "com_google_absl",
-        url = "https://github.com/abseil/abseil-cpp/archive/20220623.0.tar.gz",
-        sha256 = "4208129b49006089ba1d6710845a45e31c59b0ab6bff9e5788a87f55c5abd602",
-        strip_prefix = "abseil-cpp-20220623.0",
+        url = "https://github.com/abseil/abseil-cpp/archive/refs/tags/20240722.0.tar.gz",
+        sha256 = "f50e5ac311a81382da7fa75b97310e4b9006474f9560ac46f54a9967f07d4ae3",
+        strip_prefix = "abseil-cpp-20240722.0",
     )
 
     # Common bazel rules.  Also required for Abseil.
     http_archive(
         name = "bazel_skylib",
+        sha256 = "bc283cdfcd526a52c3201279cda4bc298652efa898b10b4db0837dc51652756f",
         urls = [
-            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.2.1/bazel-skylib-1.2.1.tar.gz",
-            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.2.1/bazel-skylib-1.2.1.tar.gz",
+            "https://mirror.bazel.build/github.com/bazelbuild/bazel-skylib/releases/download/1.7.1/bazel-skylib-1.7.1.tar.gz",
+            "https://github.com/bazelbuild/bazel-skylib/releases/download/1.7.1/bazel-skylib-1.7.1.tar.gz",
         ],
-        sha256 = "f7be3474d42aae265405a592bb7da8e171919d74c16f082a5457840f06054728",
     )
 
     # GoogleTest/GoogleMock framework. Used by most unit-tests.
     http_archive(
         name = "com_google_googletest",
-        url = "https://github.com/google/googletest/archive/refs/tags/release-1.12.1.tar.gz",
-        strip_prefix = "googletest-release-1.12.1",
-        sha256 = "81964fe578e9bd7c94dfdb09c8e4d6e6759e19967e397dbea48d1c10e45d0df2",
+        url = "https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz",
+        strip_prefix = "googletest-1.14.0",
+        sha256 = "8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7",
     )
 
-    # Re2 is a requirement for GoogleTest
-    #
-    # Note this must use a commit from the `abseil` branch of the RE2 project.
-    # https://github.com/google/re2/tree/abseil
+    # RE2 is a requirement for GoogleTest
     http_archive(
         name = "com_googlesource_code_re2",
-        sha256 = "0a890c2aa0bb05b2ce906a15efb520d0f5ad4c7d37b8db959c43772802991887",
-        strip_prefix = "re2-a427f10b9fb4622dd6d8643032600aa1b50fbd12",
-        # Commit date: 2022-06-09
-        url = "https://github.com/google/re2/archive/a427f10b9fb4622dd6d8643032600aa1b50fbd12.zip",
+        sha256 = "4e6593ac3c71de1c0f322735bc8b0492a72f66ffccfad76e259fa21c41d27d8a",
+        strip_prefix = "re2-2023-11-01",
+        # release 2023-06-01
+        url = "https://github.com/google/re2/releases/download/2023-11-01/re2-2023-11-01.tar.gz",
     )
 
     # Benchmarks for testing.
     http_archive(
         name = "com_google_benchmark",
-        url = "https://github.com/google/benchmark/archive/refs/tags/v1.7.0.tar.gz",
-        sha256 = "3aff99169fa8bdee356eaa1f691e835a6e57b1efeadb8a0f9f228531158246ac",
-        strip_prefix = "benchmark-1.7.0",
+        url = "https://github.com/google/benchmark/archive/refs/tags/v1.8.3.tar.gz",
+        sha256 = "6bc180a57d23d4d9515519f92b0c83d61b05b5bab188961f36ac7b06b0d9e9ce",
+        strip_prefix = "benchmark-1.8.3",
     )
 
     # BoringSSL for cryptographic PRNG
-    git_repository(
+    http_archive(
         name = "boringssl",
-        # Commit date: 2022-09-14
-        # Note for updating: we need to use a commit from the main-with-bazel branch.
-        commit = "d345d68d5c4b5471290ebe13f090f1fd5b7e8f58",
-        remote = "https://boringssl.googlesource.com/boringssl",
-        shallow_since = "1663197646 +0000",
+        # Commit date: 2023-10-26
+        # Note for updating: we need to use a commit from the `master-with-bazel` branch.
+        url = "https://github.com/google/boringssl/archive/add3674f646bcc3dfa828f308454fb3b37919512.tar.gz",
+        sha256 = "f8b81f1741667e4a5aa9f0cc3e873875f7f832b3b141b8ee3a5d5863f992b8ba",
+        strip_prefix = "boringssl-add3674f646bcc3dfa828f308454fb3b37919512",
     )
 
     # Supports `./configure && make` style packages to become dependencies.
     http_archive(
         name = "rules_foreign_cc",
-        strip_prefix = "rules_foreign_cc-0.9.0",
-        url = "https://github.com/bazelbuild/rules_foreign_cc/archive/0.9.0.tar.gz",
-        sha256 = "2a4d07cd64b0719b39a7c12218a3e507672b82a97b98c6a89d38565894cf7c51",
+        strip_prefix = "rules_foreign_cc-0.10.1",
+        url = "https://github.com/bazelbuild/rules_foreign_cc/releases/download/0.10.1/rules_foreign_cc-0.10.1.tar.gz",
+        sha256 = "476303bd0f1b04cc311fc258f1708a5f6ef82d3091e53fd1977fa20383425a6a",
     )
 
     # Postgres depends on rules_foreign_cc. Use postgres 12.

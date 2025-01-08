@@ -16,7 +16,12 @@
 
 #include "proto/util.h"
 
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
 #include <string>
+#include <vector>
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
@@ -55,6 +60,48 @@ TEST(UtilTest, GetSetValueTypeFloat) {
   EXPECT_THAT(GetValue<double>(v), Eq(10.0));
 }
 
+uint64_t BitCastDoubleToUint64(double d) {
+  static_assert(sizeof(double) == sizeof(uint64_t));
+  uint64_t result;
+  std::memcpy(&result, &d, sizeof(uint64_t));
+  return result;
+}
+
+TEST(UtilTest, SetValueNormalizesSignalingNanToQuietNan) {
+  ValueType v;
+  const double signaling_nan = std::numeric_limits<double>::signaling_NaN();
+
+  SetValue(&v, signaling_nan);
+
+  // NaN comparison is always false, we therefore compare the bit patterns.
+  EXPECT_TRUE(BitCastDoubleToUint64(GetValue<double>(v)) ==
+              BitCastDoubleToUint64(std::numeric_limits<double>::quiet_NaN()));
+}
+
+TEST(UtilTest, SetValueKeepsSignOfZeros) {
+  ValueType v1, v2;
+  const double positive_zero = 0.0;
+  const double negative_zero = -0.0;
+
+  SetValue(&v1, positive_zero);
+  SetValue(&v2, negative_zero);
+
+  EXPECT_FALSE(std::signbit(GetValue<double>(v1)));
+  EXPECT_TRUE(std::signbit(GetValue<double>(v2)));
+}
+
+TEST(UtilTest, SetValueKeepsSignOfInf) {
+  ValueType v1, v2;
+  const double positive_inf = std::numeric_limits<double>::infinity();
+  const double negative_inf = -std::numeric_limits<double>::infinity();
+
+  SetValue(&v1, positive_inf);
+  SetValue(&v2, negative_inf);
+
+  EXPECT_FALSE(std::signbit(GetValue<double>(v1)));
+  EXPECT_TRUE(std::signbit(GetValue<double>(v2)));
+}
+
 TEST(UtilTest, MakeOutputString) {
   std::string s = "hello";
   Output output = MakeOutput<std::string>(s);
@@ -86,19 +133,6 @@ TEST(UtilTest, MakeOutputStringWithConfidenceInterval) {
   EXPECT_EQ(output_ci.lower_bound(), ci.lower_bound());
   EXPECT_EQ(output_ci.upper_bound(), ci.upper_bound());
   EXPECT_EQ(output_ci.confidence_level(), ci.confidence_level());
-
-  // Although the ErrorReport.noise_confidence_interval is deprecated, we still
-  // keep it updated for a more seamless transition for existing clients. After
-  // some time, we should no longer use ErrorReport.noise_confidence_interval.
-  // But for now, test to make sure ErrorReport.noise_confidence_interval is
-  // being set.
-  EXPECT_EQ(output.error_report().noise_confidence_interval().lower_bound(),
-            ci.lower_bound());
-  EXPECT_EQ(output.error_report().noise_confidence_interval().upper_bound(),
-            ci.upper_bound());
-  EXPECT_EQ(
-      output.error_report().noise_confidence_interval().confidence_level(),
-      ci.confidence_level());
 }
 
 TEST(UtilTest, MakeOutputIntWithConfidenceInterval) {
@@ -114,19 +148,6 @@ TEST(UtilTest, MakeOutputIntWithConfidenceInterval) {
   EXPECT_EQ(output_ci.lower_bound(), ci.lower_bound());
   EXPECT_EQ(output_ci.upper_bound(), ci.upper_bound());
   EXPECT_EQ(output_ci.confidence_level(), ci.confidence_level());
-
-  // Although the ErrorReport.noise_confidence_interval is deprecated, we still
-  // keep it updated for a more seamless transition for existing clients. After
-  // some time, we should no longer use ErrorReport.noise_confidence_interval.
-  // But for now, test to make sure ErrorReport.noise_confidence_interval is
-  // being set.
-  EXPECT_EQ(output.error_report().noise_confidence_interval().lower_bound(),
-            ci.lower_bound());
-  EXPECT_EQ(output.error_report().noise_confidence_interval().upper_bound(),
-            ci.upper_bound());
-  EXPECT_EQ(
-      output.error_report().noise_confidence_interval().confidence_level(),
-      ci.confidence_level());
 }
 
 TEST(UtilTest, MakeOutputFloatWithConfidenceInterval) {
@@ -142,19 +163,6 @@ TEST(UtilTest, MakeOutputFloatWithConfidenceInterval) {
   EXPECT_EQ(output_ci.lower_bound(), ci.lower_bound());
   EXPECT_EQ(output_ci.upper_bound(), ci.upper_bound());
   EXPECT_EQ(output_ci.confidence_level(), ci.confidence_level());
-
-  // Although the ErrorReport.noise_confidence_interval is deprecated, we still
-  // keep it updated for a more seamless transition for existing clients. After
-  // some time, we should no longer use ErrorReport.noise_confidence_interval.
-  // But for now, test to make sure ErrorReport.noise_confidence_interval is
-  // being set.
-  EXPECT_EQ(output.error_report().noise_confidence_interval().lower_bound(),
-            ci.lower_bound());
-  EXPECT_EQ(output.error_report().noise_confidence_interval().upper_bound(),
-            ci.upper_bound());
-  EXPECT_EQ(
-      output.error_report().noise_confidence_interval().confidence_level(),
-      ci.confidence_level());
 }
 
 TEST(UtilTest, AddToOutputString) {

@@ -13,9 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = [
-    "//visibility:public",
-])
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
 
 java_plugin(
     name = "autovalue_plugin",
@@ -37,7 +41,7 @@ java_library(
 
 java_test(
     name = "AllTests",
-    timeout = "moderate",
+    timeout = "long",
     srcs = glob(
         [
             "*.java",
