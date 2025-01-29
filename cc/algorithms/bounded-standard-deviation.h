@@ -18,20 +18,18 @@
 #define DIFFERENTIAL_PRIVACY_ALGORITHMS_BOUNDED_STANDARD_DEVIATION_H_
 
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <type_traits>
 #include <utility>
 
-#include <cstdint>
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "algorithms/algorithm.h"
 #include "algorithms/approx-bounds.h"
-#include "algorithms/bounded-algorithm.h"
 #include "algorithms/bounded-variance.h"
 #include "algorithms/numerical-mechanisms.h"
-#include "algorithms/util.h"
 #include "proto/util.h"
 #include "proto/data.pb.h"
 #include "proto/summary.pb.h"

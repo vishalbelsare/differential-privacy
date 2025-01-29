@@ -16,8 +16,8 @@
 import dataclasses
 import enum
 import typing
-from absl import logging
 
+from absl import logging
 import numpy as np
 
 
@@ -39,12 +39,14 @@ class DifferentialPrivacyParam():
   privacy_model: PrivacyModel = PrivacyModel.CENTRAL
 
 
+# DEPRECATED: Use PrivacyCalculatorMultiplier instead.
 @dataclasses.dataclass
 class PrivacyBudgetSplit():
   """How to split epsilon between the computations.
 
+  DEPRECATED: Use PrivacyCalculatorMultiplier instead.
+
   Attributes:
-    epsilon: Differential privacy parameter, epsilon, to be split.
     frac_sum: The fraction of epsilon to use when computing the sum of points
       for noisy averaging.
     frac_group_count: The fraction of epsilon to use when counting the number of
@@ -54,10 +56,70 @@ class PrivacyBudgetSplit():
   frac_group_count: float = 0.2
 
   def __post_init__(self):
+    logging.warn(
+        "PrivacyBudgetSplit is deprecated and has been replaced with"
+        " PrivacyCalculatorMultiplier."
+    )
     total = self.frac_sum + self.frac_group_count
     if total > 1.0:
       raise ValueError(
           f"The provided privacy budget split ({total}) was greater than 1.0.")
+
+
+@dataclasses.dataclass
+class PrivacyCalculatorMultiplier():
+  """Multipliers to be used by mechanism calibration.
+
+  Using mechanism calibration [1], these multipliers are used to find the
+  optimal alpha such that our clustering algorithm is within the privacy budget,
+  where:
+    gaussian_std_dev = gaussian_std_dev_multiplier * alpha * sensitivity
+    laplace_param = 1 / (laplace_param_multiplier * alpha)
+  where gaussian_std_dev is used to calculate the sum Gaussian noise when
+  adding points (used when averaging points), and laplace_param is used to
+  calculate the discrete Laplace noise when counting points (used when averaging
+  points and constructing the tree).
+
+  All else fixed, increasing the multiplier corresponding to a given operation
+  roughly shifts more noise towards those operations (and decreases noise for
+  the other operations).
+
+  [1]
+  https://github.com/google/differential-privacy/blob/main/python/dp_accounting/mechanism_calibration.py
+  """
+  gaussian_std_dev_multiplier: float = 1.0
+  laplace_param_multiplier: float = 20.0
+
+  def get_gaussian_std_dev(self, alpha: float, sensitivity: float) -> float:
+    """Returns Gaussian standard deviation based on alpha.
+
+    Args:
+      alpha: parameter varied in mechanism calibration.
+      sensitivity: sensitivity of the dataset for the sum operations.
+    """
+    return self.gaussian_std_dev_multiplier * alpha * sensitivity
+
+  def get_alpha(self, gaussian_std_dev: float, sensitivity: float) -> float:
+    """Returns alpha based on Gaussian standard deviation and sensitivity.
+
+    This must be the inverse of get_gaussian_std_dev with respect to alpha.
+
+    Args:
+      gaussian_std_dev: standard deviation to calculate alpha for.
+      sensitivity: sensitivity of the dataset for the sum operations.
+    """
+    return gaussian_std_dev / (sensitivity * self.gaussian_std_dev_multiplier)
+
+  def get_laplace_param(self, alpha: float) -> float:
+    """Returns Laplace parameter based on alpha.
+
+    Args:
+      alpha: parameter varied in mechanism calibration.
+    """
+    inverse_laplace_param = self.laplace_param_multiplier * alpha
+    # Laplace param increases as noise decreases, so we scale it inversely with
+    # alpha.
+    return 1.0 / inverse_laplace_param
 
 
 @dataclasses.dataclass

@@ -23,7 +23,7 @@ demonstrates how to use the library. Source code for the codelab is available in
 the [codelab/](codelab)
 directory.
 
-Full documentation of the API is available as [godoc](https://godoc.org/github.com/google/differential-privacy/privacy-on-beam/v2/pbeam).
+Full documentation of the API is available as [godoc](https://godoc.org/github.com/google/differential-privacy/privacy-on-beam/v3/pbeam).
 
 ## Using with the "go" Command
 
@@ -56,86 +56,83 @@ you can omit `-mod=mod`.
 
 ## Using with Bazel
 
-In order to include Privacy on Beam in your Bazel project, you need to add the
-following to your `WORKSPACE` file (change `dp_lib_version` to the version you
-want to depend on, or alternatively you can depend on a specific commit; but
-keep in mind that you have to update `dp_lib_tar_sha256` as well):
+In order to include Privacy on Beam in your Bazel project, we recommend you use
+[Gazelle](https://github.com/bazelbuild/bazel-gazelle):
 
-```
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+1. Add the following dependencies to your `WORKSPACE` file (feel free to use the
+   latest version of the dependencies by updating the version numbers in the
+   URLs & sha256 checksums):
+   ```
+   load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-http_archive(
-    name = "io_bazel_rules_go",
-    sha256 = "7c10271940c6bce577d51a075ae77728964db285dac0a46614a7934dc34303e6",
-    urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.26.0/rules_go-v0.26.0.tar.gz",
-        "https://github.com/bazelbuild/rules_go/releases/download/v0.26.0/rules_go-v0.26.0.tar.gz",
-    ],
-)
+   http_archive(
+      name = "io_bazel_rules_go",
+      sha256 = "80a98277ad1311dacd837f9b16db62887702e9f1d1c4c9f796d0121a46c8e184",
+      urls = [
+         "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.46.0/rules_go-v0.46.0.zip",
+         "https://github.com/bazelbuild/rules_go/releases/download/v0.46.0/rules_go-v0.46.0.zip",
+      ],
+   )
 
-load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
+   http_archive(
+      name = "bazel_gazelle",
+      sha256 = "32938bda16e6700063035479063d9d24c60eda8d79fd4739563f50d331cb3209",
+      urls = [
+         "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.35.0/bazel-gazelle-v0.35.0.tar.gz",
+         "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.35.0/bazel-gazelle-v0.35.0.tar.gz",
+      ],
+   )
 
-go_rules_dependencies()
+   http_archive(
+       name = "com_google_protobuf",
+       sha256 = "4a7e87e4166c358c63342dddcde6312faee06ea9d5bb4e2fa87d3478076f6639",
+       url = "https://github.com/protocolbuffers/protobuf/archive/refs/tags/v21.5.tar.gz",
+       strip_prefix = "protobuf-21.5",
+   )
 
-go_register_toolchains(version = "1.16")
+   load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
 
-http_archive(
-    name = "bazel_gazelle",
-    sha256 = "62ca106be173579c0a167deb23358fdfe71ffa1e4cfdddf5582af26520f1c66f",
-    urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.23.0/bazel-gazelle-v0.23.0.tar.gz",
-        "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.23.0/bazel-gazelle-v0.23.0.tar.gz",
-    ],
-)
+   go_rules_dependencies()
 
-load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies", "go_repository")
+   go_register_toolchains(version = "1.22.0")
 
-gazelle_dependencies()
+   # Protobuf transitive dependencies.
+   load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
+   protobuf_deps()
 
-dp_lib_version = "1.1.2" # Change to the version you want to use.
-dp_lib_tar_sha256 = "b7476712485053ed039b05bbe7481a43c8760457e6ebd7afb320d51fdf744fb5" # Change to the sha256 of the .tar.gz of the version you want to use.
-dp_lib_url = "https://github.com/google/differential-privacy/archive/refs/tags/v" + dp_lib_version + ".tar.gz"
+   # Gazelle dependencies must be added last.
+   load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
 
-http_archive(
-    name = "com_github_google_differential_privacy",
-    sha256 = dp_lib_tar_sha256,
-    urls = [
-        dp_lib_url,
-    ],
-    strip_prefix = "differential-privacy-" + dp_lib_version,
-)
+   gazelle_dependencies()
 
-# Load dependencies for Google DP Library base workspace.
-load("@com_github_google_differential_privacy//:differential_privacy_deps.bzl", "differential_privacy_deps")
-differential_privacy_deps()
+   # Googleapis needs to be included separately for dependencies to work: https://github.com/bazelbuild/rules_go/issues/3625#issuecomment-1643804054
+   http_archive(
+      name = "googleapis",
+      sha256 = "78aae8879967e273044bc786e691d9a16db385bd137454e80cd0b53476adfc2d",
+      strip_prefix = "googleapis-c09efadc6785560333d967f0bd40f1d1c3232088",
+      urls = ["https://github.com/googleapis/googleapis/archive/c09efadc6785560333d967f0bd40f1d1c3232088.tar.gz"],
+   )
 
-# Protobuf transitive dependencies.
-load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
-protobuf_deps()
+   load("@googleapis//:repository_rules.bzl", "switched_rules_by_language")
 
-http_archive(
-    name = "com_google_privacy_on_beam",
-    sha256 = dp_lib_tar_sha256,
-    urls = [
-        dp_lib_url,
-    ],
-    strip_prefix = "differential-privacy-" + dp_lib_version + "/privacy-on-beam",
-)
+   switched_rules_by_language(
+      name = "com_google_googleapis_imports",
+   )
+   ```
 
-load("@com_google_privacy_on_beam//:privacy_on_beam_deps.bzl", "privacy_on_beam_deps")
-privacy_on_beam_deps()
+1. Add the following code to your root `BUILD` or `BUILD.bazel` file:
+   ```
+   load("@bazel_gazelle//:def.bzl", "gazelle")
+   # gazelle:prefix github.com/example/project
+   gazelle(name = "gazelle")
+   ```
 
-http_archive(
-    name = "com_google_go_differential_privacy",
-    sha256 = dp_lib_tar_sha256,
-    urls = [
-        dp_lib_url,
-    ],
-    strip_prefix = "differential-privacy-" + dp_lib_version + "/go",
-)
+1. Run `bazel run //:gazelle -- update-repos -from_file=go.mod`, which will add
+   dependencies to your `WORKSPACE` file (you need a valid go.mod file with your
+   dependencies, e.g. `github.com/google/differential-privacy/privacy-on-beam/v3`).
 
-load("@com_google_go_differential_privacy//:go_differential_privacy_deps.bzl", "go_differential_privacy_deps")
-go_differential_privacy_deps()
-```
-
-Then, you can depend on `@com_google_privacy_on_beam` in your BUILD files.
+1. Run `bazel run //:gazelle -- -go_naming_convention_external=go_default_library`
+   to automatically generate or update your `BUILD` files and build targets.
+   Alternatively, you can manually add
+   `@com_github_google_differential_privacy_privacy_on_beam_v3` as a dependency
+   to targets in your `BUILD` files.

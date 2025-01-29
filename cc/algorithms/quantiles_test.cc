@@ -17,12 +17,18 @@
 #include "algorithms/quantiles.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <memory>
+#include <vector>
 
 #include "base/testing/proto_matchers.h"
 #include "base/testing/status_matchers.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "absl/random/random.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "algorithms/numerical-mechanisms-testing.h"
 
 namespace differential_privacy {
@@ -76,6 +82,14 @@ TEST(QuantilesTest, InvalidParametersTest) {
           .Build(),
       StatusIs(absl::StatusCode::kInvalidArgument,
                HasSubstr("Lower bound cannot be greater than upper bound")));
+  EXPECT_THAT(
+      Quantiles<double>::Builder()
+          .SetLower(1)
+          .SetUpper(1)
+          .SetQuantiles({0.5})
+          .Build(),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("Lower bound cannot be equal to upper bound")));
   EXPECT_THAT(Quantiles<double>::Builder().SetQuantiles({0.5}).Build(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("Lower and upper bounds must both be set")));
@@ -99,7 +113,7 @@ TYPED_TEST(QuantilesTest, ApproximatesTrueQuantile) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
 
@@ -136,7 +150,7 @@ TYPED_TEST(QuantilesTest, InputOrderInvariant) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
   std::unique_ptr<Quantiles<TypeParam>> test_quantiles2 =
@@ -144,7 +158,7 @@ TYPED_TEST(QuantilesTest, InputOrderInvariant) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
 
@@ -180,7 +194,7 @@ TYPED_TEST(QuantilesTest, ResultsIncreaseMonotonically) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
 
@@ -214,7 +228,7 @@ TYPED_TEST(QuantilesTest, SerializeMergeTest) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
   std::unique_ptr<Quantiles<TypeParam>> test_quantiles2 =
@@ -222,7 +236,7 @@ TYPED_TEST(QuantilesTest, SerializeMergeTest) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
 
@@ -346,7 +360,7 @@ TEST(QuantilesTest, IgnoresNaN) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles({0.5})
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
 
@@ -355,7 +369,7 @@ TEST(QuantilesTest, IgnoresNaN) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles({0.5})
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
 
@@ -413,7 +427,7 @@ TYPED_TEST(QuantilesTest, Reset) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
   std::unique_ptr<Quantiles<TypeParam>> test_quantiles2 =
@@ -421,7 +435,7 @@ TYPED_TEST(QuantilesTest, Reset) {
           .SetUpper(50)
           .SetLower(-50)
           .SetQuantiles(quantiles)
-          .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
+          .SetLaplaceMechanism(std::make_unique<ZeroNoiseMechanism::Builder>())
           .Build()
           .value();
 

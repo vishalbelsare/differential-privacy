@@ -18,10 +18,11 @@
 #define DIFFERENTIAL_PRIVACY_TESTING_SEQUENCE_H_
 
 #include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
-#include "base/logging.h"
+#include "absl/log/check.h"
 #include "absl/memory/memory.h"
 #include "absl/random/distributions.h"
 
@@ -213,7 +214,7 @@ class HaltonSequence : public HypercubeSequence<T> {
     CHECK(HypercubeSequence<T>::dimension_ == bases.size());
     halton_generators_.resize(bases.size());
     std::transform(bases.begin(), bases.end(), halton_generators_.begin(),
-                   [](int b) { return absl::make_unique<Halton>(b); });
+                   [](int b) { return std::make_unique<Halton>(b); });
   }
 };
 

@@ -21,36 +21,26 @@ import (
 	"reflect"
 
 	log "github.com/golang/glog"
-	"github.com/google/differential-privacy/go/v2/checks"
-	"github.com/google/differential-privacy/go/v2/dpagg"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/kv"
+	"github.com/google/differential-privacy/go/v3/checks"
+	"github.com/google/differential-privacy/go/v3/dpagg"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/kv"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
+	"github.com/apache/beam/sdks/v2/go/pkg/beam/register"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/filter"
 )
 
 func init() {
-	beam.RegisterType(reflect.TypeOf((*partitionSelectionFn)(nil)))
-	beam.RegisterFunction(dropThresholdedPartitionsBoolFn)
+	register.Combiner3[partitionSelectionAccum, beam.W, bool](&partitionSelectionFn{})
+
+	register.Function3x0[beam.W, bool, func(beam.W)](dropThresholdedPartitionsBool)
+	register.Emitter1[beam.W]()
 }
 
 // SelectPartitionsParams specifies the parameters associated with a
 // SelectPartitions aggregation.
-type SelectPartitionsParams struct {
-	// Differential privacy budget consumed by this aggregation. If there is
-	// only one aggregation, both Epsilon and Delta can be left 0; in that
-	// case, the entire budget of the PrivacySpec is consumed.
-	Epsilon, Delta float64
-	// The maximum number of distinct keys that a given privacy identifier
-	// can influence. If a privacy identifier is associated to more keys,
-	// random keys will be dropped. There is an inherent trade-off when
-	// choosing this parameter: a larger MaxPartitionsContributed leads to less
-	// data loss due to contribution bounding, but since the noise added in
-	// aggregations is scaled according to maxPartitionsContributed, it also
-	// means that more noise is added to each count.
-	//
-	// Required.
-	MaxPartitionsContributed int64
-}
+//
+// TODO: Remove this alias.
+type SelectPartitionsParams = PartitionSelectionParams
 
 // SelectPartitions performs differentially private partition selection using
 // dpagg.PreAggSelectPartitions and returns the list of partitions to keep as
@@ -63,17 +53,14 @@ func SelectPartitions(s beam.Scope, pcol PrivatePCollection, params SelectPartit
 	s = s.Scope("pbeam.SelectPartitions")
 	// Obtain type information from the underlying PCollection<K,V>.
 	_, pT := beam.ValidateKVType(pcol.col)
-
-	epsilon, delta, err := pcol.privacySpec.consumeBudget(params.Epsilon, params.Delta)
-	if err != nil {
-		log.Fatalf("Couldn't consume budget for SelectPartition: %v", err)
-	}
 	spec := pcol.privacySpec
-	maxPartitionsContributed, err := getMaxPartitionsContributed(spec, params.MaxPartitionsContributed)
+	var err error
+	params.Epsilon, params.Delta, err = spec.partitionSelectionBudget.consume(params.Epsilon, params.Delta)
 	if err != nil {
-		log.Fatalf("Couldn't get MaxPartitionsContributed for SelectPartitions: %v", err)
+		log.Fatalf("Couldn't consume budget for SelectPartitions: %v", err)
 	}
-	err = checkSelectPartitionsParams(epsilon, delta, maxPartitionsContributed)
+
+	err = checkSelectPartitionsParams(params)
 	if err != nil {
 		log.Fatalf("pbeam.SelectPartitions: %v", err)
 	}
@@ -100,23 +87,27 @@ func SelectPartitions(s beam.Scope, pcol PrivatePCollection, params SelectPartit
 		beam.TypeDefinition{Var: beam.VType, T: partitionT.Type()})
 
 	// Third, do cross-partition contribution bounding if not in test mode without contribution bounding.
-	if spec.testMode != noNoiseWithoutContributionBounding {
-		partitions = boundContributions(s, partitions, maxPartitionsContributed)
+	if spec.testMode != TestModeWithoutContributionBounding {
+		partitions = boundContributions(s, partitions, params.MaxPartitionsContributed)
 	}
 
 	// Finally, we swap the privacy and partition key and perform partition selection.
 	partitions = beam.SwapKV(s, partitions) // PCollection<K, ID>
-	partitions = beam.CombinePerKey(s, newPartitionSelectionFn(epsilon, delta, maxPartitionsContributed, spec.testMode), partitions)
-	result := beam.ParDo(s, dropThresholdedPartitionsBoolFn, partitions)
+	partitions = beam.CombinePerKey(s, newPartitionSelectionFn(*spec, params), partitions)
+	result := beam.ParDo(s, dropThresholdedPartitionsBool, partitions)
 	return result
 }
 
-func checkSelectPartitionsParams(epsilon, delta float64, maxPartitionsContributed int64) error {
-	err := checks.CheckEpsilon(epsilon)
+func checkSelectPartitionsParams(params SelectPartitionsParams) error {
+	err := checks.CheckEpsilonStrict(params.Epsilon)
 	if err != nil {
 		return err
 	}
-	return checks.CheckDeltaStrict(delta)
+	err = checks.CheckDeltaStrict(params.Delta)
+	if err != nil {
+		return err
+	}
+	return checkMaxPartitionsContributed(params.MaxPartitionsContributed)
 }
 
 type partitionSelectionAccum struct {
@@ -126,18 +117,20 @@ type partitionSelectionAccum struct {
 type partitionSelectionFn struct {
 	Epsilon                  float64
 	Delta                    float64
+	PreThreshold             int64
 	MaxPartitionsContributed int64
-	TestMode                 testMode
+	TestMode                 TestMode
 }
 
-func newPartitionSelectionFn(epsilon, delta float64, maxPartitionsContributed int64, testMode testMode) *partitionSelectionFn {
-	return &partitionSelectionFn{Epsilon: epsilon, Delta: delta, MaxPartitionsContributed: maxPartitionsContributed, TestMode: testMode}
+func newPartitionSelectionFn(spec PrivacySpec, params SelectPartitionsParams) *partitionSelectionFn {
+	return &partitionSelectionFn{Epsilon: params.Epsilon, Delta: params.Delta, PreThreshold: spec.preThreshold, MaxPartitionsContributed: params.MaxPartitionsContributed, TestMode: spec.testMode}
 }
 
 func (fn *partitionSelectionFn) CreateAccumulator() (partitionSelectionAccum, error) {
 	sp, err := dpagg.NewPreAggSelectPartition(&dpagg.PreAggSelectPartitionOptions{
 		Epsilon:                  fn.Epsilon,
 		Delta:                    fn.Delta,
+		PreThreshold:             fn.PreThreshold,
 		MaxPartitionsContributed: fn.MaxPartitionsContributed})
 	return partitionSelectionAccum{SP: sp}, err
 }
@@ -163,11 +156,11 @@ func (fn *partitionSelectionFn) String() string {
 	return fmt.Sprintf("%#v", fn)
 }
 
-// dropThresholdedPartitionsBoolFn drops thresholded bool partitions, i.e. those
+// dropThresholdedPartitionsBool drops thresholded bool partitions, i.e. those
 // that have false v, by emitting only non-thresholded partitions. Differently from
 // other dropThresholdedPartitionsFn's, since v only indicates whether or not a
 // partition should be kept, the value is not emitted with the partition key.
-func dropThresholdedPartitionsBoolFn(k beam.W, v bool, emit func(beam.W)) {
+func dropThresholdedPartitionsBool(k beam.W, v bool, emit func(beam.W)) {
 	if v {
 		emit(k)
 	}

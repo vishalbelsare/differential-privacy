@@ -17,14 +17,12 @@
 #ifndef DIFFERENTIAL_PRIVACY_ALGORITHMS_NUMERICAL_MECHANISMS_H_
 #define DIFFERENTIAL_PRIVACY_ALGORITHMS_NUMERICAL_MECHANISMS_H_
 
-#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
-#include <string>
 #include <type_traits>
 #include <utility>
 
-#include <cstdint>
 #include "absl/base/attributes.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -56,13 +54,13 @@ class NumericalMechanism {
   virtual ~NumericalMechanism() = default;
 
   template <typename T, std::enable_if_t<std::is_integral<T>::value>* = nullptr>
-  T AddNoise(T result) {
+  int64_t AddNoise(T result) {
     return AddInt64Noise(result);
   }
 
   template <typename T,
             std::enable_if_t<std::is_floating_point<T>::value>* = nullptr>
-  T AddNoise(T result) {
+  double AddNoise(T result) {
     return AddDoubleNoise(result);
   }
 
@@ -168,18 +166,16 @@ class NumericalMechanismBuilder {
     return absl::OkStatus();
   }
 
-  absl::optional<double> GetEpsilon() const { return epsilon_; }
-  absl::optional<double> GetDelta() const { return delta_; }
-  absl::optional<double> GetL0Sensitivity() const { return l0_sensitivity_; }
-  absl::optional<double> GetLInfSensitivity() const {
-    return linf_sensitivity_;
-  }
+  std::optional<double> GetEpsilon() const { return epsilon_; }
+  std::optional<double> GetDelta() const { return delta_; }
+  std::optional<double> GetL0Sensitivity() const { return l0_sensitivity_; }
+  std::optional<double> GetLInfSensitivity() const { return linf_sensitivity_; }
 
  private:
-  absl::optional<double> epsilon_;
-  absl::optional<double> delta_;
-  absl::optional<double> l0_sensitivity_;
-  absl::optional<double> linf_sensitivity_;
+  std::optional<double> epsilon_;
+  std::optional<double> delta_;
+  std::optional<double> l0_sensitivity_;
+  std::optional<double> linf_sensitivity_;
 };
 
 // Provides differential privacy by adding Laplace noise. This class also
@@ -207,14 +203,10 @@ class LaplaceMechanism : public NumericalMechanism {
     }
 
    protected:
-    absl::optional<double> GetL1Sensitivity() const { return l1_sensitivity_; }
+    std::optional<double> GetL1Sensitivity() const { return l1_sensitivity_; }
 
    private:
-    absl::optional<double> l1_sensitivity_;
-
-    // Returns the L1 sensitivity when it has been set or returns an upper bound
-    // on the L1 sensitivity calculated from L0 and Linf sensitivities.
-    absl::StatusOr<double> CalculateL1Sensitivity();
+    std::optional<double> l1_sensitivity_;
   };
 
   ABSL_DEPRECATED(
@@ -318,6 +310,20 @@ class GaussianMechanism : public NumericalMechanism {
       return *this;
     }
 
+    // Allows users to set the noise standard deviation directly, skipping
+    // the calculations based on differential privacy parameters. Only use this
+    // if you know what you're doing - the code will apply the exact amount of
+    // noise you specify, which might not be enough to achieve your desired
+    // privacy guarantee.
+    //
+    // Either this, or the differential privacy parameters (epsilon and delta)
+    // should be specified. In case both are specified, this method will return
+    // an error.
+    Builder& SetStandardDeviation(double stddev) {
+      stddev_ = stddev;
+      return *this;
+    }
+
     absl::StatusOr<std::unique_ptr<NumericalMechanism>> Build() override;
 
     std::unique_ptr<NumericalMechanismBuilder> Clone() const override {
@@ -325,7 +331,8 @@ class GaussianMechanism : public NumericalMechanism {
     }
 
    protected:
-    absl::optional<double> l2_sensitivity_;
+    std::optional<double> l2_sensitivity_;
+    std::optional<double> stddev_;
 
    private:
     // Returns the l2 sensitivity when it has been set or returns an upper bound
@@ -345,6 +352,16 @@ class GaussianMechanism : public NumericalMechanism {
       double epsilon, double delta, double l2_sensitivity,
       std::unique_ptr<internal::GaussianDistribution> standard_gaussian)
       : GaussianMechanism(epsilon, delta, l2_sensitivity) {
+    standard_gaussian_ = std::move(standard_gaussian);
+  }
+
+  ABSL_DEPRECATED(
+      "Use GaussianMechanism::Builder instead of GaussianMechanism "
+      "constructor.")
+  GaussianMechanism(
+      double stddev,
+      std::unique_ptr<internal::GaussianDistribution> standard_gaussian)
+      : NumericalMechanism(0), delta_(0), l2_sensitivity_(0), stddev_(stddev) {
     standard_gaussian_ = std::move(standard_gaussian);
   }
 
@@ -430,6 +447,7 @@ class GaussianMechanism : public NumericalMechanism {
   const double delta_;
   const double l2_sensitivity_;
   std::unique_ptr<internal::GaussianDistribution> standard_gaussian_;
+  const double stddev_;
 };
 
 // Mechanism builder that returns the mechanism with minimum variance for given

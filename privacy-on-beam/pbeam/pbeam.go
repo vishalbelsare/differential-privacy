@@ -37,31 +37,36 @@
 // To understand the main API contract provided by PrivatePCollection, consider
 // the following example pipeline.
 //
-//  p := beam.NewPipeline()
-//  s := p.Root()
-//  // The input is a series of files in which each line contains the data of a privacy unit (e.g. an individual).
-//  input := textio.Read(s, "/path/to/files/*.txt") // input is a PCollection<string>
-//  // Extracts the privacy ID and the data associated with each line: extractID is a func(string) (userID,data).
-//  icol := beam.ParDo(s, input, extractID) // icol is a PCollection<privacyUnitID,data>
-//  // Transforms the input PCollection into a PrivatePCollection with parameters ε=1 and δ=10⁻¹⁰.
-//  // The privacy ID is "hidden" by the operation: pcol behaves as if it were a PCollection<data>.
-//  pcol := MakePrivate(s, icol, NewPrivacySpec(1, 1e-10)) // pcol is a PrivatePCollection<data>
-//  // Arbitrary transformations can be applied to the data…
-//  pcol = ParDo(s, pcol, someDoFn)
-//  pcol = ParDo(s, pcol, otherDoFn)
-//  // …and to retrieve PCollection outputs, differentially private aggregations must be used.
-//  // For example, assuming pcol is now a PrivatePCollection<field,float64>:
-//  sumParams := SumParams{MaxPartitionsContributed: 10, MaxValue: 5}
-//  ocol := SumPerKey(s, pcol2, sumParams) // ocol is a PCollection<field,float64>
-//  // And it is now possible to output this data.
-//  textio.Write(s, "/path/to/output/file", ocol)
+//		p := beam.NewPipeline()
+//		s := p.Root()
+//		// The input is a series of files in which each line contains the data of a privacy unit (e.g. an individual).
+//		input := textio.Read(s, "/path/to/files/*.txt") // input is a PCollection<string>
+//		// Extracts the privacy ID and the data associated with each line: extractID is a func(string) (userID,data).
+//		icol := beam.ParDo(s, input, extractID) // icol is a PCollection<privacyUnitID,data>
+//		// Transforms the input PCollection into a PrivatePCollection with parameters ε=1 and δ=10⁻¹⁰.
+//		// The privacy ID is "hidden" by the operation: pcol behaves as if it were a PCollection<data>.
+//	  spec, err := pbeam.NewPrivacySpec(pbeam.PrivacySpecParams{
+//	    AggregationEpsilon: 0.5,
+//	    PartitionSelectionEpsilon: 0.5,
+//	    PartitionSelectionDelta: 1e-10,
+//	  })
+//		pcol := pbeam.MakePrivate(s, icol, spec) // pcol is a PrivatePCollection<data>
+//		// Arbitrary transformations can be applied to the data…
+//		pcol = pbeam.ParDo(s, pcol, someDoFn)
+//		pcol = pbeam.ParDo(s, pcol, otherDoFn)
+//		// …and to retrieve PCollection outputs, differentially private aggregations must be used.
+//		// For example, assuming pcol is now a PrivatePCollection<field,float64>:
+//		sumParams := pbeam.SumParams{MaxPartitionsContributed: 10, MaxValue: 5}
+//		ocol := pbeam.SumPerKey(s, pcol2, sumParams) // ocol is a PCollection<field,float64>
+//		// And it is now possible to output this data.
+//		textio.Write(s, "/path/to/output/file", ocol)
 //
 // The behavior of PrivatePCollection is similar to the behavior of PCollection.
 // In particular, it implements arbitrary per-record transformations via ParDo.
 // However, the contents of a PrivatePCollection cannot be written to disk.
 // For example, there is no equivalent of:
 //
-//  textio.Write(s, "/path/to/output/file", pcol)
+//	textio.Write(s, "/path/to/output/file", pcol)
 //
 // In order to retrieve data encapsulated in a PrivatePCollection, it is
 // necessary to use one of the differentially private aggregations provided with
@@ -78,7 +83,7 @@
 // PCollection obtained by removing all records associated with a given value of
 // K in icol. Then, for any set S of possible outputs:
 //
-//  P[f(icol) ∈ S] ≤ exp(ε) * P[f(icol') ∈ S] + δ.
+//	P[f(icol) ∈ S] ≤ exp(ε) * P[f(icol') ∈ S] + δ.
 //
 // The K, in the example above, is userID, representing a user identifier. This
 // means that the full list of contributions of any given user is protected. However, this does not need
@@ -115,19 +120,21 @@ import (
 	"sync"
 
 	log "github.com/golang/glog"
-	"github.com/google/differential-privacy/go/v2/noise"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/kv"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/testoption"
+	"github.com/google/differential-privacy/go/v3/checks"
+	"github.com/google/differential-privacy/go/v3/noise"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/kv"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/core/typex"
+	"github.com/apache/beam/sdks/v2/go/pkg/beam/register"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func init() {
-	beam.RegisterType(reflect.TypeOf((*extractProtoFieldFn)(nil)))
-	beam.RegisterType(reflect.TypeOf((*extractStructFieldFn)(nil)))
-	// TODO: add tests to make sure we don't forget anything here
+	register.DoFn2x3[beam.U, kv.Pair, beam.U, beam.V, error](&dropKeyFn{})
+	register.DoFn2x3[beam.U, kv.Pair, beam.U, beam.W, error](&dropValueFn{})
+	register.DoFn1x3[beam.V, string, beam.V, error](&extractStructFieldFn{})
+	register.DoFn1x3[beam.V, string, beam.V, error](&extractProtoFieldFn{})
 }
 
 // PrivacySpec contains information about the privacy parameters used in
@@ -137,68 +144,125 @@ func init() {
 // different privacy budgets, call NewPrivacySpec multiple times and give a
 // different PrivacySpec to each PrivatePCollection.
 type PrivacySpec struct {
-	epsilon           float64 // ε budget available for this PrivatePCollection.
-	delta             float64 // δ budget available for this PrivatePCollection.
-	partiallyConsumed bool    // Whether some privacy budget has already been consumed from this PrivacySpec.
-	testMode testMode // Used for test pipelines, disabled by default.
-	mux      sync.Mutex
+	aggregationBudget        *privacyBudget // Epsilon/Delta (ε,δ) budget available for aggregations performed on this PrivatePCollection.
+	partitionSelectionBudget *privacyBudget // Epsilon/Delta (ε,δ) budget available for partition selections performed on this PrivatePCollection.
+	preThreshold             int64          // Pre-threshold K applied on top of DP partition selection.
+	testMode TestMode // Used for test pipelines, disabled by default.
 }
 
-// getBudget computes the differential privacy budget (ε,δ) to consume
-// from a PrivacySpec. If epsilon and delta are 0, it gets the entire
-// budget, which is only possible if this is the first time its budget
-// is to be consumed.
+// PartitionSelectionParams holds the ε & δ budget to be used for private partition selection of
+// an aggregation. It is also used to specify parameters of a SelectPartitions aggregation.
+type PartitionSelectionParams struct {
+	// Differential privacy budget consumed by private partition selection.
+	//
+	// If this is the only private partition selection operation in the pipeline (e.g. the only
+	// aggregation in the pipeline, the only aggregation in the pipeline where public partitions are
+	// not specified, the only SelectPartitions aggregation aggregation in the pipeline where other
+	// aggregations use public partitions), both Epsilon and Delta can be left 0; in that case, the
+	// entire budget reserved for partition selection in the PrivacySpec is consumed.
+	Epsilon, Delta float64
+	// Warning: This parameter can currently only be set for SelectPartitions aggregation.
+	//
+	// The maximum number of distinct keys that a given privacy identifier can influence. If a privacy
+	// identifier is associated to more keys, random keys will be dropped. There is an inherent
+	// trade-off when choosing this parameter: a larger MaxPartitionsContributed leads to less data
+	// loss due to contribution bounding, but since the noise added in aggregations is scaled
+	// according to maxPartitionsContributed, it also means that probability of keeping a partition
+	// with a given privacy ID count is lowered.
+	//
+	// Required.
+	MaxPartitionsContributed int64
+}
+
+// PrivacySpecParams contains parameters to construct a PrivacySpec.
+//
+// Uses the new privacy budget API where clients specify aggregation budget and partition selection budget separately.
+type PrivacySpecParams struct {
+	// Epsilon (ε) budget available for aggregations performed on this PrivatePCollection. Required unless
+	// the only aggregation in the pipeline is pbeam.SelectPartitions.
+	AggregationEpsilon float64
+	// Delta (δ) budget available for aggregations performed on this PrivatePCollection. Only set it if you
+	// use Gaussian Noise.
+	AggregationDelta float64
+	// Epsilon (ε) budget available for partition selections performed on this PrivatePCollection. Required unless
+	// you use public partitions.
+	PartitionSelectionEpsilon float64
+	// Delta (δ) budget available for partition selections performed on this PrivatePCollection. Required unless
+	// you use public partitions.
+	PartitionSelectionDelta float64
+	// PreThreshold contains an optional additional threshold. Pre-thresholding is
+	// performed in combination with private partition selection to ensure that
+	// each partition has at least a K number of unique contributions.
+	//
+	// See https://github.com/google/differential-privacy/blob/main/common_docs/pre_thresholding.md
+	// for more information.
+	//
+	// Pre-thresholding is currently only available for partition selection.
+	PreThreshold int64
+	// Test mode for test pipelines, disabled by default. Set it to TestModeWithContributionBounding or
+	// TestModeWithoutContributionBounding if you want to enable test mode.
+	TestMode TestMode
+}
+type privacyBudget struct {
+	// Epsilon/Delta (ε,δ) budget available.
+	epsilon, delta    float64
+	partiallyConsumed bool       // Whether some budget has already been consumed from this privacy budget.
+	mux               sync.Mutex // To avoid race conditions on epsilon & delta.
+}
+
+// consumes a differential privacy budget (ε,δ) from a PrivacySpec. If epsilon and delta are 0,
+// it consumes the entire budget, which is only possible if this is the first time its budget is consumed.
+//
+// Returns the budget consumed.
+func (budget *privacyBudget) consume(epsilon, delta float64) (eps, del float64, err error) {
+	budget.mux.Lock()
+	defer budget.mux.Unlock()
+	eps, del, err = budget.getThreadUnsafe(epsilon, delta)
+	budget.epsilon = budget.epsilon - eps
+	budget.delta = budget.delta - del
+	budget.partiallyConsumed = true
+	return eps, del, err
+}
+
+// get computes the differential privacy budget (ε,δ) to consume from a PrivacySpec.If epsilon and
+// delta are 0, it gets the entire available budget, which is only possible if this is the first
+// time its budget is to be consumed.
 //
 // Returns the budget to consume.
 //
 // Warning: use consumeBudget to actually consume the budget.
-func (ps *PrivacySpec) getBudget(epsilon, delta float64) (eps, del float64, err error) {
-	ps.mux.Lock()
-	defer ps.mux.Unlock()
-	return ps.getBudgetThreadUnsafe(epsilon, delta)
+func (budget *privacyBudget) get(epsilon, delta float64) (eps, del float64, err error) {
+	budget.mux.Lock()
+	defer budget.mux.Unlock()
+	return budget.getThreadUnsafe(epsilon, delta)
 }
 
-// getBudgetThreadUnsafe is not thread-safe and should not be used directly. Instead, use getBudget
-// or consumeBudget.
-func (ps *PrivacySpec) getBudgetThreadUnsafe(epsilon, delta float64) (eps, del float64, err error) {
+// getThreadUnsafe is not thread-safe and should not be used directly. Instead, use get or consume.
+func (budget *privacyBudget) getThreadUnsafe(epsilon, delta float64) (eps, del float64, err error) {
 	if epsilon == 0 && delta == 0 {
-		return ps.getEntireBudget()
+		return budget.getEntireBudget()
 	}
-	return ps.getPartialBudget(epsilon, delta)
+	return budget.getPartialBudget(epsilon, delta)
 }
 
-// consumeBudget consumes a differential privacy budget (ε,δ) from a
-// PrivacySpec. If epsilon and delta are 0, it consumes the entire budget,
-// which is only possible if this is the first time its budget is consumed.
-// Returns the budget consumed.
-func (ps *PrivacySpec) consumeBudget(epsilon, delta float64) (eps, del float64, err error) {
-	ps.mux.Lock()
-	defer ps.mux.Unlock()
-	eps, del, err = ps.getBudgetThreadUnsafe(epsilon, delta)
-	ps.epsilon = ps.epsilon - eps
-	ps.delta = ps.delta - del
-	ps.partiallyConsumed = true
-	return eps, del, err
+func (budget *privacyBudget) getEntireBudget() (eps, del float64, err error) {
+	if budget.partiallyConsumed {
+		return 0, 0, fmt.Errorf("trying to consume entire budget of PrivacySpec, but it has already been partially or fully consumed: %+v ", budget)
+	}
+	return budget.epsilon, budget.delta, nil
 }
 
-func (ps *PrivacySpec) getEntireBudget() (eps, del float64, err error) {
-	if ps.partiallyConsumed {
-		return 0, 0, fmt.Errorf("trying to consume entire budget of PrivacySpec, but it has already been partially or fully consumed: %+v ", ps)
+func (budget *privacyBudget) getPartialBudget(epsilon, delta float64) (eps, del float64, err error) {
+	if budgetSlightlyTooLarge(budget.epsilon, epsilon) {
+		log.Infof("corrected rounding error for epsilon budget allocation (requested: %f, available: %f, difference: %e)", epsilon, budget.epsilon, epsilon-budget.epsilon)
+		epsilon = budget.epsilon
 	}
-	return ps.epsilon, ps.delta, nil
-}
-
-func (ps *PrivacySpec) getPartialBudget(epsilon, delta float64) (eps, del float64, err error) {
-	if budgetSlightlyTooLarge(ps.epsilon, epsilon) {
-		log.Infof("corrected rounding error for epsilon budget allocation (requested: %f, available: %f, difference: %e)", epsilon, ps.epsilon, epsilon-ps.epsilon)
-		epsilon = ps.epsilon
+	if budgetSlightlyTooLarge(budget.delta, delta) {
+		log.Infof("corrected rounding error for delta budget allocation (requested: %e, available: %e, difference: %e)", delta, budget.delta, delta-budget.delta)
+		delta = budget.delta
 	}
-	if budgetSlightlyTooLarge(ps.delta, delta) {
-		log.Infof("corrected rounding error for delta budget allocation (requested: %e, available: %e, difference: %e)", epsilon, ps.epsilon, epsilon-ps.epsilon)
-		delta = ps.delta
-	}
-	if ps.epsilon < epsilon || ps.delta < delta {
-		return 0, 0, fmt.Errorf("not enough budget left for PrivacySpec: trying to consume epsilon=%f and delta=%e out of remaining epsilon=%f and delta=%e. Did you forget to split your budget among aggregations?", epsilon, delta, ps.epsilon, ps.delta)
+	if budget.epsilon < epsilon || budget.delta < delta {
+		return 0, 0, fmt.Errorf("not enough budget left for PrivacySpec: trying to consume epsilon=%f and delta=%e out of remaining epsilon=%f and delta=%e. Did you forget to split your budget among aggregations?", epsilon, delta, budget.epsilon, budget.delta)
 	}
 	return epsilon, delta, nil
 }
@@ -216,29 +280,6 @@ func budgetSlightlyTooLarge(remaining, requested float64) bool {
 		return false
 	}
 	return math.Abs(diff) <= remaining/eqBudgetRelTol
-}
-
-// PrivacySpecOption is used for customizing PrivacySpecs. In the typical use
-// case, PrivacySpecOptions are passed into the NewPrivacySpec constructor to
-// create a further customized PrivacySpec.
-type PrivacySpecOption interface{}
-
-func evaluatePrivacySpecOption(opt PrivacySpecOption, spec *PrivacySpec) {
-	switch opt {
-	case testoption.EnableNoNoiseWithContributionBounding{}:
-		spec.testMode = noNoiseWithContributionBounding
-	case testoption.EnableNoNoiseWithoutContributionBounding{}:
-		spec.testMode = noNoiseWithoutContributionBounding
-	}
-}
-
-// getMaxPartitionsContributed returns a maxPartitionsContributed parameter
-// if it greater than zero, otherwise it fails.
-func getMaxPartitionsContributed(spec *PrivacySpec, maxPartitionsContributed int64) (int64, error) {
-	if maxPartitionsContributed <= 0 {
-		return 0, fmt.Errorf("MaxPartitionsContributed must be set to a positive value, was %d instead.", maxPartitionsContributed)
-	}
-	return maxPartitionsContributed, nil
 }
 
 // NoiseKind represents the kind of noise to be used in an aggregations.
@@ -261,21 +302,50 @@ func (ln LaplaceNoise) toNoiseKind() noise.Kind {
 }
 
 // NewPrivacySpec creates a new PrivacySpec with the specified privacy budget
-// and options.
+// and parameters.
 //
-// The epsilon and delta arguments are the total (ε,δ)-differential privacy
-// budget for the pipeline. If there is only one aggregation, the entire budget
-// will be used for this aggregation. Otherwise, the user must specify how the
-// privacy budget is split across aggregations.
-func NewPrivacySpec(epsilon, delta float64, options ...PrivacySpecOption) *PrivacySpec {
-	ps := &PrivacySpec{
-		epsilon: epsilon,
-		delta:   delta,
+// Aggregation(Epsilon|Delta) and PartitionSelection(Epsilon|Delta) are the total
+// (ε,δ)-differential privacy budget for the pipeline. If there is only one aggregation
+// or partition selection,  the entire budget will be used for this operation. Otherwise,
+// the user must specify how the privacy budget is split across aggregations.
+func NewPrivacySpec(params PrivacySpecParams) (*PrivacySpec, error) {
+
+	err := checks.CheckEpsilon(params.AggregationEpsilon)
+	if err != nil {
+		return nil, fmt.Errorf("AggregationEpsilon: %v", err)
 	}
-	for _, opt := range options {
-		evaluatePrivacySpecOption(opt, ps)
+	err = checks.CheckDelta(params.AggregationDelta)
+	if err != nil {
+		return nil, fmt.Errorf("AggregationDelta: %v", err)
 	}
-	return ps
+	err = checks.CheckEpsilon(params.PartitionSelectionEpsilon)
+	if err != nil {
+		return nil, fmt.Errorf("PartitionSelectionEpsilon: %v", err)
+	}
+	err = checks.CheckDelta(params.PartitionSelectionDelta)
+	if err != nil {
+		return nil, fmt.Errorf("PartitionSelectionDelta: %v", err)
+	}
+	if params.PreThreshold > 0 && params.PartitionSelectionDelta == 0 {
+		return nil, fmt.Errorf("when PreThreshold is set, partition selection budget must also be set")
+	}
+	err = checks.CheckPreThreshold(params.PreThreshold)
+	if err != nil {
+		return nil, fmt.Errorf("PreThreshold: %v", err)
+	}
+	if params.AggregationEpsilon == 0 && params.PartitionSelectionEpsilon == 0 {
+		return nil, fmt.Errorf("either AggregationEpsilon or PartitionSelectionEpsilon must be set to a positive value")
+	}
+	if params.PartitionSelectionEpsilon != 0 && params.PartitionSelectionDelta == 0 {
+		return nil, fmt.Errorf("PartitionSelectionDelta must be set to a positive value whenever PartitionSelectionEpsilon is set. "+
+			"PartitionSelectionEpsilon is currently set to (%f)", params.PartitionSelectionEpsilon)
+	}
+	return &PrivacySpec{
+		aggregationBudget:        &privacyBudget{epsilon: params.AggregationEpsilon, delta: params.AggregationDelta},
+		partitionSelectionBudget: &privacyBudget{epsilon: params.PartitionSelectionEpsilon, delta: params.PartitionSelectionDelta},
+		preThreshold:             params.PreThreshold,
+		testMode:                 params.TestMode,
+	}, nil
 }
 
 // A PrivatePCollection embeds a PCollection, associating each element to a
@@ -322,19 +392,19 @@ func MakePrivate(_ beam.Scope, col beam.PCollection, spec *PrivacySpec) PrivateP
 // use as a privacy key.
 // For example:
 //
-//   type exampleStruct1 struct {
-//     IntField int
-//		 StructField exampleStruct2
-//   }
+//	  type exampleStruct1 struct {
+//	    IntField int
+//			 StructField exampleStruct2
+//	  }
 //
-//   type  exampleStruct2 struct {
-//     StringField string
-//   }
+//	  type  exampleStruct2 struct {
+//	    StringField string
+//	  }
 //
 // If col is a PCollection of exampleStruct1, you could use "IntField" or
 // "StructField.StringField" as idFieldPath.
 //
-// Caution
+// # Caution
 //
 // The privacy key field must be a simple type (e.g. int, string, etc.), or
 // a pointer to a simple type and all its parents must be structs or
@@ -377,7 +447,7 @@ func (ext *extractStructFieldFn) ProcessElement(v beam.V) (string, beam.V, error
 
 // getIDField retrieves the ID field (specified by the IDFieldPath) from
 // struct or pointer to a struct s.
-func (ext *extractStructFieldFn) getIDField(s interface{}) (interface{}, error) {
+func (ext *extractStructFieldFn) getIDField(s any) (any, error) {
 	subFieldNames := strings.Split(ext.IDFieldPath, ".")
 	subField := reflect.ValueOf(s)
 	var subFieldPath bytes.Buffer
@@ -472,7 +542,7 @@ func (ext *extractProtoFieldFn) ProcessElement(v beam.V) (string, beam.V, error)
 // its fully qualified name, and deletes this field from the original message.
 // It fails if the field is a submessage, if it is repeated, or if any of its
 // parents are repeated.
-func (ext *extractProtoFieldFn) extractField(pb protoreflect.Message) (interface{}, error) {
+func (ext *extractProtoFieldFn) extractField(pb protoreflect.Message) (any, error) {
 	parts := strings.Split(ext.IDFieldPath, ".")
 	curPb := pb
 	curDesc := ext.desc
@@ -500,4 +570,46 @@ func (ext *extractProtoFieldFn) extractField(pb protoreflect.Message) (interface
 		}
 	}
 	return nil, fmt.Errorf("submessage field %s found in the proto message", ext.IDFieldPath)
+}
+
+// DropKey drops the key for an input PrivatePCollection<K,V>. It returns
+// a PrivatePCollection<V>.
+func DropKey(s beam.Scope, pcol PrivatePCollection) PrivatePCollection {
+	pcol.col = beam.ParDo(s, &dropKeyFn{pcol.codec}, pcol.col, beam.TypeDefinition{Var: beam.VType, T: pcol.codec.VType.T})
+	pcol.codec = nil
+	return pcol
+}
+
+type dropKeyFn struct {
+	Codec *kv.Codec
+}
+
+func (fn *dropKeyFn) Setup() {
+	fn.Codec.Setup()
+}
+
+func (fn *dropKeyFn) ProcessElement(id beam.U, kv kv.Pair) (beam.U, beam.V, error) {
+	_, v, err := fn.Codec.Decode(kv)
+	return id, v, err
+}
+
+// DropValue drops the value for an input PrivatePCollection<K,V>. It returns
+// a PrivatePCollection<K>.
+func DropValue(s beam.Scope, pcol PrivatePCollection) PrivatePCollection {
+	pcol.col = beam.ParDo(s, &dropValueFn{pcol.codec}, pcol.col, beam.TypeDefinition{Var: beam.WType, T: pcol.codec.KType.T})
+	pcol.codec = nil
+	return pcol
+}
+
+type dropValueFn struct {
+	Codec *kv.Codec
+}
+
+func (fn *dropValueFn) Setup() {
+	fn.Codec.Setup()
+}
+
+func (fn *dropValueFn) ProcessElement(id beam.U, kv kv.Pair) (beam.U, beam.W, error) {
+	k, _, err := fn.Codec.Decode(kv)
+	return id, k, err
 }
