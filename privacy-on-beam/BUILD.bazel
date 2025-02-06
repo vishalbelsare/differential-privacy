@@ -16,6 +16,17 @@
 
 load("@bazel_gazelle//:def.bzl", "gazelle")
 
-# gazelle:prefix github.com/google/differential-privacy/privacy-on-beam/v2
+# gazelle:prefix github.com/google/differential-privacy/privacy-on-beam/v3
 gazelle(name = "gazelle")
+
 # gazelle:proto disable_global
+#
+gazelle(
+    name = "update-repos",
+    args = [
+        "-from_file=go.mod",
+        "-to_macro=privacy_on_beam_deps.bzl%privacy_on_beam_deps",
+        "-prune",
+    ],
+    command = "update-repos",
+)

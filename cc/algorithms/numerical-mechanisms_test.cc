@@ -17,7 +17,10 @@
 #include "algorithms/numerical-mechanisms.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <memory>
+#include <vector>
 
 #include "base/testing/status_matchers.h"
 #include "gmock/gmock.h"
@@ -29,11 +32,13 @@ namespace differential_privacy {
 namespace {
 
 using ::testing::_;
+using ::testing::Contains;
 using ::testing::DoubleNear;
 using ::testing::Eq;
 using ::testing::Ge;
 using ::testing::HasSubstr;
 using ::testing::IsNull;
+using ::testing::Lt;
 using ::testing::MatchesRegex;
 using ::testing::Not;
 using ::testing::Return;
@@ -123,6 +128,64 @@ TEST(NumericalMechanismsTest, LaplaceBuilderFailsEpsilonInfinity) {
   // version.
   std::string message(failed_build.status().message());
   EXPECT_THAT(message, MatchesRegex("^Epsilon must be finite.*"));
+}
+
+TEST(NumericalMechanismsTest, LaplaceBuilderFailsNoSensitivities) {
+  LaplaceMechanism::Builder test_builder;
+  auto failed_build = test_builder.SetEpsilon(1).Build();
+  EXPECT_THAT(failed_build.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  // Convert message to std::string so that the matcher works in the open source
+  // version.
+  std::string message(failed_build.status().message());
+  EXPECT_THAT(message,
+              HasSubstr("LaplaceMechanism requires either L1 or (L0 and LInf) "
+                        "sensitivities to be set, but none were set"));
+}
+
+TEST(NumericalMechanismsTest, LaplaceBuilderFailsOnlyL0Set) {
+  LaplaceMechanism::Builder test_builder;
+  auto failed_build = test_builder.SetL0Sensitivity(1).SetEpsilon(1).Build();
+  EXPECT_THAT(failed_build.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  // Convert message to std::string so that the matcher works in the open source
+  // version.
+  std::string message(failed_build.status().message());
+  EXPECT_THAT(message,
+              HasSubstr("LaplaceMechanism requires either L1 or (L0 and LInf) "
+                        "sensitivities to be set, but only L0 was set"));
+}
+
+TEST(NumericalMechanismsTest, LaplaceBuilderFailsOnlyLInfSet) {
+  LaplaceMechanism::Builder test_builder;
+  auto failed_build = test_builder.SetLInfSensitivity(1).SetEpsilon(1).Build();
+  EXPECT_THAT(failed_build.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  // Convert message to std::string so that the matcher works in the open source
+  // version.
+  std::string message(failed_build.status().message());
+  EXPECT_THAT(message,
+              HasSubstr("LaplaceMechanism requires either L1 or (L0 and LInf) "
+                        "sensitivities to be set, but only LInf was set"));
+}
+
+TEST(NumericalMechanismsTest, LaplaceBuilderFailsCalculatedL1NotFinite) {
+  LaplaceMechanism::Builder test_builder;
+  const double high_sensitivity = std::numeric_limits<double>::max() - 1.0;
+  auto failed_build = test_builder.SetL0Sensitivity(high_sensitivity)
+                          .SetLInfSensitivity(high_sensitivity)
+                          .SetEpsilon(1)
+                          .Build();
+  EXPECT_THAT(failed_build.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  // Convert message to std::string so that the matcher works in the open source
+  // version.
+  std::string message(failed_build.status().message());
+  EXPECT_THAT(
+      message,
+      HasSubstr(
+          "The result of the L1 sensitivity calculation is not finite: inf. "
+          "Please check your contribution and sensitivity settings"));
 }
 
 TEST(NumericalMechanismsTest, LaplaceBuilderFailsL1SensitivityZero) {
@@ -347,36 +410,6 @@ TEST(NumericalMechanismsTest, LaplaceNoisedValueAboveThreshold) {
     EXPECT_NEAR(num_above_thresold / kNumSamples, ts.expected_probability,
                 0.0025);
   }
-}
-
-TEST(NumericalMechanismsTest, LaplaceMechanismAddNoiseOverflowFromTypeCast) {
-  LaplaceMechanism mechanism(1);
-
-  // The noise should eventually be positive, which, when added to the numeric
-  // limit, will cause an overflow and return a negative result.
-  int i;
-  for (i = 0; i < 100; ++i) {
-    if (mechanism.AddNoise(std::numeric_limits<int64_t>::max()) < 0) {
-      // An overflow has happened, so return to end the test as a success.
-      return;
-    }
-  }
-  FAIL() << "No overflow occurred after " << i << " iterations.";
-}
-
-TEST(NumericalMechanismsTest, LaplaceMechanismAddNoiseUnderflowFromTypeCast) {
-  LaplaceMechanism mechanism(1);
-
-  // The noise should eventually be negative, which, when added to the numeric
-  // limit, will cause an underflow and return a positive result.
-  int i;
-  for (i = 0; i < 100; ++i) {
-    if (mechanism.AddNoise(std::numeric_limits<int64_t>::lowest()) > 0) {
-      // An underflow has happened, so return to end the test as a success.
-      return;
-    }
-  }
-  FAIL() << "No overflow occurred after " << i << " iterations.";
 }
 
 TEST(NumericalMechanismsTest, LaplaceDiversityCorrect) {
@@ -633,7 +666,6 @@ TEST_P(NoiseIntervalMultipleParametersTests, GaussNoiseConfidenceInterval) {
   double true_upper_bound = params.result - params.true_bound;
 
   GaussianMechanism mechanism(epsilon, delta, sensitivity);
-  LOG(INFO) << mechanism.CalculateStddev();
   absl::StatusOr<ConfidenceInterval> confidence_interval =
       mechanism.NoiseConfidenceInterval(conf_level, result);
 
@@ -799,6 +831,49 @@ TEST(NumericalMechanismsTest, GaussianBuilderFailsCalculatedL2SensitivityZero) {
       message,
       MatchesRegex(
           "^The calculated L2 sensitivity must be positive and finite.*"));
+}
+
+TEST(NumericalMechanismsTest, GaussianBuilderFailsWithStddevAndOtherParams) {
+  GaussianMechanism::Builder test_builder;
+  auto failed_build =
+      test_builder.SetStandardDeviation(1).SetEpsilon(1).Build();
+  EXPECT_THAT(failed_build.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  std::string message(failed_build.status().message());
+  EXPECT_THAT(message, MatchesRegex("^If standard deviation is set directly it "
+                                    "must be the only parameter.*"));
+
+  auto failed_build2 =
+      test_builder.SetStandardDeviation(1).SetDelta(0.1).Build();
+  EXPECT_THAT(failed_build2.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  message = failed_build2.status().message();
+  EXPECT_THAT(message, MatchesRegex("^If standard deviation is set directly it "
+                                    "must be the only parameter.*"));
+
+  auto failed_build3 =
+      test_builder.SetStandardDeviation(1).SetL0Sensitivity(1).Build();
+  EXPECT_THAT(failed_build3.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  message = failed_build3.status().message();
+  EXPECT_THAT(message, MatchesRegex("^If standard deviation is set directly it "
+                                    "must be the only parameter.*"));
+
+  auto failed_build4 =
+      test_builder.SetStandardDeviation(1).SetLInfSensitivity(1).Build();
+  EXPECT_THAT(failed_build4.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  message = failed_build4.status().message();
+  EXPECT_THAT(message, MatchesRegex("^If standard deviation is set directly it "
+                                    "must be the only parameter.*"));
+
+  auto failed_build5 =
+      test_builder.SetStandardDeviation(1).SetL2Sensitivity(1).Build();
+  EXPECT_THAT(failed_build5.status().code(),
+              Eq(absl::StatusCode::kInvalidArgument));
+  message = failed_build5.status().message();
+  EXPECT_THAT(message, MatchesRegex("^If standard deviation is set directly it "
+                                    "must be the only parameter.*"));
 }
 
 TEST(NumericalMechanismsTest, GaussianMechanismAddsNoise) {
@@ -976,26 +1051,6 @@ TEST(NumericalMechanismsTest, GaussianMechanismNoisedValueAboveThreshold) {
   }
 }
 
-TEST(NumericalMechanismsTest, GaussianMechanismAddNoiseOverflowFromTypeCast) {
-  auto mechanism = GaussianMechanism::Builder()
-                       .SetL2Sensitivity(1)
-                       .SetEpsilon(1)
-                       .SetDelta(0.5)
-                       .Build();
-  ASSERT_OK(mechanism);
-
-  // The noise should eventually be positive, which, when added to the numeric
-  // limit, will cause an overflow and return a negative result.
-  int i;
-  for (i = 0; i < 100; ++i) {
-    if ((*mechanism)->AddNoise(std::numeric_limits<int64_t>::max()) < 0) {
-      // An overflow has happened, so return to end the test as a success.
-      return;
-    }
-  }
-  FAIL() << "No overflow occurred after " << i << " iterations.";
-}
-
 TEST(NumericalMechanismsTest, GaussianBuilderClone) {
   GaussianMechanism::Builder test_builder;
   auto clone =
@@ -1012,10 +1067,16 @@ TEST(NumericalMechanismsTest, GaussianBuilderClone) {
 }
 
 TEST(NumericalMechanismsTest, Stddev) {
-  GaussianMechanism mechanism(std::log(3), 0.00001, 1.0);
-
-  EXPECT_DOUBLE_EQ(mechanism.CalculateStddev(std::log(3), 0.00001, 1),
-                   3.42578125);
+  auto mechanism = GaussianMechanism::Builder()
+                       .SetL2Sensitivity(1.0)
+                       .SetEpsilon(std::log(3))
+                       .SetDelta(0.00001)
+                       .Build();
+  auto gaussian = dynamic_cast<GaussianMechanism *>(mechanism.value().get());
+  EXPECT_DOUBLE_EQ(gaussian->CalculateStddev(), 3.42578125);
+  // Call CalculateStddev with parameters differing from the attributes.
+  EXPECT_DOUBLE_EQ(gaussian->CalculateStddev(std::log(4), 0.00002, 3.0),
+                   7.986328125);
 }
 
 TEST(NumericalMechanismsTest, GaussianVarianceReturnsWallysResult) {
@@ -1031,6 +1092,19 @@ TEST(NumericalMechanismsTest, GaussianVarianceReturnsWallysResult) {
   // Ensure the returned variance roughly matches what (broken link) returns.
   // Currently Wally returns a stddev of 17.922 for these values.
   EXPECT_NEAR(mechanism->get()->GetVariance(), std::pow(17.922, 2), 0.5);
+}
+
+TEST(NumericalMechanismsTest, GaussianSetStddev) {
+  absl::StatusOr<std::unique_ptr<NumericalMechanism>> mechanism =
+      GaussianMechanism::Builder().SetStandardDeviation(3.5).Build();
+  ASSERT_OK(mechanism.status());
+
+  std::vector<double> samples;
+  for (int i = 0; i < kNumSamples; ++i) {
+    samples.push_back((*mechanism)->AddNoise(0));
+  }
+
+  EXPECT_NEAR(StandardDev(samples), 3.5, 0.1);
 }
 
 TEST(NumericalMechanismsTest, LaplaceMechanismSerialization) {
@@ -1163,6 +1237,24 @@ TEST(NumericalMechanismTest, MinVarianceMechanismBuilderFailsWithoutEpsilon) {
 
   EXPECT_THAT(fails.status().code(), Eq(absl::StatusCode::kInvalidArgument));
   EXPECT_THAT(fails.status().message(), HasSubstr("Epsilon must be set"));
+}
+
+TEST(NumericalMechanismTest, AddNoiseReturnsNegativeValuesForUnsignedInt) {
+  // Flakiness of this test is approximately 1 / 2**50 ~= 8e-16
+  absl::StatusOr<std::unique_ptr<NumericalMechanism>> mechanism =
+      LaplaceMechanism::Builder()
+          .SetEpsilon(0.001)  // low epsilon for more variance
+          .SetL0Sensitivity(20)
+          .SetLInfSensitivity(100)
+          .Build();
+  ASSERT_OK(mechanism);
+
+  std::vector<int64_t> results;
+  for (int i = 0; i < 50; ++i) {
+    results.push_back(mechanism.value()->AddNoise<uint8_t>(0));
+  }
+
+  EXPECT_THAT(results, Contains(Lt(0)));
 }
 
 }  // namespace

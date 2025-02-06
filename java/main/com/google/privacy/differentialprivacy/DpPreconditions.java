@@ -38,15 +38,24 @@ public class DpPreconditions {
         epsilon);
   }
 
+  static void checkRho(double rho) {
+    double rhoLowerBound = 1.0 / (1L << 50);
+    checkArgument(
+        Double.isFinite(rho) && rho >= rhoLowerBound,
+        "rho must be >= %s and < infinity. Provided value: %s",
+        rhoLowerBound,
+        rho);
+  }
+
   static void checkNoiseDelta(Double delta, Noise noise) {
     if (noise.getMechanismType() == MechanismType.LAPLACE
         || noise.getMechanismType() == MechanismType.DISCRETE_LAPLACE) {
       checkArgument(
-          delta == null,
+          delta == null || delta == 0.0,
           "delta should not be set when (Discrete) Laplace noise is used. Provided value: %s",
           delta);
     } else if (noise.getMechanismType() == MechanismType.GAUSSIAN) {
-      checkNotNull(delta);
+      checkNotNull(delta, "delta should not be null when Gaussian noise is used.");
       checkDelta(delta);
       // For unknown noise, delta may or may not be null, but if it is not null it should be between
       // 0 and 1.
@@ -80,6 +89,13 @@ public class DpPreconditions {
         l1Sensitivity);
   }
 
+  static void checkL2Sensitivity(double l2Sensitivity) {
+    checkArgument(
+        Double.isFinite(l2Sensitivity) && l2Sensitivity > 0,
+        "l2Sensitivity must be > 0 and finite. Provided value: %s",
+        l2Sensitivity);
+  }
+
   static void checkMaxPartitionsContributed(int maxPartitionsContributed) {
     // maxPartitionsContributed is the user-facing parameter, which is technically the same as
     // L0 sensitivity used by the noise internally.
@@ -102,7 +118,16 @@ public class DpPreconditions {
         upper);
     checkArgument(
         isFinite(lower) && isFinite(upper),
-        "Lower and upper bounds should be finite. Provided values: " + "lower = %s upper = %s",
+        "Lower and upper bounds should be finite. Provided values: lower = %s upper = %s",
+        lower,
+        upper);
+  }
+
+  static void checkBounds(long lower, long upper) {
+    checkArgument(
+        upper >= lower,
+        "The upper bound should be greater than the lower bound. Provided values: "
+            + "lower = %s upper = %s",
         lower,
         upper);
   }
@@ -120,13 +145,13 @@ public class DpPreconditions {
     if (delta1 != null) {
       checkArgument(
           Double.compare(delta1, delta2) == 0,
-          "Failed to merge: unequal values of delta. " + "delta1 = %s, delta2 = %s",
+          "Failed to merge: unequal values of delta. delta1 = %s, delta2 = %s",
           delta1,
           delta2);
     } else {
       checkArgument(
           Double.compare(delta2, 0.0) == 0,
-          "Failed to merge: unequal values of delta. " + "delta1 = %s, delta2 = %s",
+          "Failed to merge: unequal values of delta. delta1 = %s, delta2 = %s",
           delta1,
           delta2);
     }
@@ -135,7 +160,7 @@ public class DpPreconditions {
   static void checkMergeEpsilonAreEqual(double epsilon1, double epsilon2) {
     checkArgument(
         Double.compare(epsilon1, epsilon2) == 0,
-        "Failed to merge: unequal values of epsilon. " + "epsilon1 = %s, epsilon2 = %s",
+        "Failed to merge: unequal values of epsilon. epsilon1 = %s, epsilon2 = %s",
         epsilon1,
         epsilon2);
   }
@@ -143,12 +168,25 @@ public class DpPreconditions {
   static void checkMergeBoundsAreEqual(double lower1, double lower2, double upper1, double upper2) {
     checkArgument(
         Double.compare(lower1, lower2) == 0,
-        "Failed to merge: unequal lower bounds. " + "lower1 = %s, lower2 = %s",
+        "Failed to merge: unequal lower bounds. lower1 = %s, lower2 = %s",
         lower1,
         lower2);
     checkArgument(
         Double.compare(upper1, upper2) == 0,
-        "Failed to merge: unequal upper bounds. " + "upper1 = %s, upper2 = %s",
+        "Failed to merge: unequal upper bounds. upper1 = %s, upper2 = %s",
+        upper1,
+        upper2);
+  }
+
+  static void checkMergeBoundsAreEqual(long lower1, long lower2, long upper1, long upper2) {
+    checkArgument(
+        Long.compare(lower1, lower2) == 0,
+        "Failed to merge: unequal lower bounds. lower1 = %s, lower2 = %s",
+        lower1,
+        lower2);
+    checkArgument(
+        Long.compare(upper1, upper2) == 0,
+        "Failed to merge: unequal upper bounds. upper1 = %s, upper2 = %s",
         upper1,
         upper2);
   }
@@ -171,6 +209,15 @@ public class DpPreconditions {
             + "maxPartitionsContributed1 = %s, maxPartitionsContributed2 = %s",
         maxPartitionsContributed1,
         maxPartitionsContributed2);
+  }
+
+  static void checkMergePreThresholdAreEqual(int preThreshold1, int preThreshold2) {
+    checkArgument(
+        preThreshold1 == preThreshold2,
+        "Failed to merge: unequal values of preThreshold. "
+            + "preThreshold1 = %s, preThreshold2 = %s",
+        preThreshold1,
+        preThreshold2);
   }
 
   static void checkMergeMechanismTypesAreEqual(MechanismType type1, MechanismType type2) {
@@ -199,5 +246,12 @@ public class DpPreconditions {
     checkEpsilon(epsilon);
     checkNoiseDelta(delta, noise);
     checkArgument(rank > 0 && rank < 1, "rank must be > 0 and < 1. Provided value: %s", rank);
+  }
+
+  static void checkPreThreshold(int preThreshold) {
+    checkArgument(
+        preThreshold >= 1,
+        "preThreshold must be greater than or equal to 1. Provided value: %s",
+        preThreshold);
   }
 }

@@ -14,14 +14,9 @@
 """Utilities for adding noise to satisfy central privacy."""
 
 import dataclasses
-from typing import Type
 
 import numpy as np
 from scipy import stats
-
-from clustering import clustering_params
-from dp_accounting.pld import accountant
-from dp_accounting.pld import common
 
 
 @dataclasses.dataclass
@@ -30,23 +25,18 @@ class AveragePrivacyParam():
   gaussian_standard_deviation: float
   sensitivity: float
 
-  @classmethod
-  def from_budget_split(
-      cls: Type['AveragePrivacyParam'],
-      privacy_param: clustering_params.DifferentialPrivacyParam,
-      privacy_budget_split: clustering_params.PrivacyBudgetSplit,
-      radius: float) -> 'AveragePrivacyParam':
-    """Calculates standard deviation by splitting the privacy budget."""
-    split_epsilon = (privacy_budget_split.frac_sum * privacy_param.epsilon)
-    if split_epsilon == np.inf:
-      gaussian_standard_deviation = 0
-    else:
-      gaussian_standard_deviation = accountant.get_smallest_gaussian_noise(
-          common.DifferentialPrivacyParameters(split_epsilon,
-                                               privacy_param.delta),
-          num_queries=1,
-          sensitivity=radius)
-    return cls(gaussian_standard_deviation, radius)
+  def __post_init__(self):
+    # Standard deviation can be 0 to indicate no noise.
+    if self.gaussian_standard_deviation < 0:
+      raise ValueError(
+          f'Gaussian standard deviation was {self.gaussian_standard_deviation},'
+          ' but it must be nonnegative.'
+      )
+
+    if self.sensitivity <= 0:
+      raise ValueError(
+          f'Sensitivity for averaging was {self.sensitivity}, but it must be '
+          'positive.')
 
 
 def get_private_average(nonprivate_points: np.ndarray, private_count: int,
@@ -82,20 +72,12 @@ class CountPrivacyParam():
   """Privacy parameters for calling get_private_count()."""
   laplace_param: float
 
-  @classmethod
-  def from_budget_split(
-      cls: Type['CountPrivacyParam'],
-      clustering_privacy_param: clustering_params.DifferentialPrivacyParam,
-      budget_split: clustering_params.PrivacyBudgetSplit,
-      depth: int) -> 'CountPrivacyParam':
-    """Computes laplace param by splitting the budget."""
-    # Split epsilon between each level of the tree starting with level 0. Depth
-    # is based on the number of edges in the path, so add one to the depth to
-    # get the number of levels.
-    split_epsilon = (budget_split.frac_group_count *
-                     clustering_privacy_param.epsilon) / (
-                         depth + 1.0)
-    return cls(laplace_param=split_epsilon)
+  def __post_init__(self):
+    # No noise means laplace_param == inf, not 0. We invert the discrete Laplace
+    # param for accounting.
+    if self.laplace_param <= 0:
+      raise ValueError(f'Discrete Laplace param was {self.laplace_param}, '
+                       'but it must be positive.')
 
 
 def get_private_count(nonprivate_count: int,

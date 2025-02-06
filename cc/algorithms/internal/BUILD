@@ -18,17 +18,35 @@ package(
 )
 
 cc_library(
+    name = "clamped-calculation-without-bounds",
+    hdrs = ["clamped-calculation-without-bounds.h"],
+    deps = [
+        "//algorithms:util",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_cc_differential_privacy//base:status_macros",
+    ],
+)
+
+cc_test(
+    name = "clamped-calculation-without-bounds_test",
+    srcs = ["clamped-calculation-without-bounds_test.cc"],
+    deps = [
+        ":clamped-calculation-without-bounds",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_googletest//:gtest_main",
+    ],
+)
+
+cc_library(
     name = "count-tree",
     srcs = ["count-tree.cc"],
     hdrs = ["count-tree.h"],
     deps = [
-        "//algorithms:algorithm",
-        "//algorithms:bounded-algorithm",
-        "//algorithms:numerical-mechanisms",
-        "//proto:util-lib",
+        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_cc_differential_privacy//base:status",
+        "@com_google_absl//absl/strings",
+        "@com_google_cc_differential_privacy//base:status_macros",
         "@com_google_differential_privacy//proto:summary_cc_proto",
     ],
 )
@@ -40,6 +58,7 @@ cc_test(
         ":count-tree",
         "//base/testing:proto_matchers",
         "//base/testing:status_matchers",
+        "@com_google_absl//absl/status",
         "@com_google_googletest//:gtest_main",
     ],
 )
@@ -61,8 +80,9 @@ cc_test(
     deps = [
         ":bounded-mean-ci",
         "//algorithms:numerical-mechanisms",
-        "//base:logging",
-        "@com_google_absl//absl/status",
+        "//base/testing:proto_matchers",
+        "//base/testing:status_matchers",
+        "@com_google_absl//absl/log:check",
         "@com_google_absl//absl/status:statusor",
         "@com_google_differential_privacy//proto:confidence_interval_cc_proto",
         "@com_google_googletest//:gtest_main",

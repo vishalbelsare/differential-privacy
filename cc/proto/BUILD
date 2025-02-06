@@ -16,7 +16,9 @@
 
 # Differential Privacy related proto utilities.
 
-package(default_visibility = ["//visibility:public"])
+package(
+    default_visibility = ["//visibility:public"],
+)
 
 cc_library(
     name = "util-lib",

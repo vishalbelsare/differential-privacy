@@ -20,9 +20,9 @@ import (
 	"reflect"
 
 	log "github.com/golang/glog"
-	"github.com/google/differential-privacy/go/v2/checks"
-	"github.com/google/differential-privacy/go/v2/noise"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/kv"
+	"github.com/google/differential-privacy/go/v3/checks"
+	"github.com/google/differential-privacy/go/v3/noise"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/kv"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 )
 
@@ -34,28 +34,20 @@ type DistinctPerKeyParams struct {
 	// Defaults to LaplaceNoise{}.
 	NoiseKind NoiseKind
 	// Differential privacy budget consumed by this aggregation. If there is
-	// only one aggregation, both Epsilon and Delta can be left 0; in that
-	// case, the entire budget of the PrivacySpec is consumed.
-	Epsilon, Delta float64
-	// The maximum number of distinct keys that a given privacy identifier
-	// can influence. If a privacy identifier is associated to more keys,
-	// random keys will be dropped. There is an inherent trade-off when
-	// choosing this parameter: a larger MaxPartitionsContributed leads to less
-	// data loss due to contribution bounding, but since the noise added in
-	// aggregations is scaled according to maxPartitionsContributed, it also
-	// means that more noise is added to each count.
+	// only one aggregation, both epsilon and delta can be left 0; in that case
+	// the entire budget reserved for aggregation in the PrivacySpec is consumed.
+	AggregationEpsilon, AggregationDelta float64
+	// Differential privacy budget consumed by partition selection of this
+	// aggregation.
 	//
-	// Required.
-	MaxPartitionsContributed int64
-	// The maximum number of distinct values a given privacy identifier can
-	// contribute to for each key. There is an inherent trade-off when choosing this
-	// parameter: a larger MaxContributionsPerPartition leads to less data loss due
-	// to contribution bounding, but since the noise added in aggregations is
-	// scaled according to maxContributionsPerPartition, it also means that more
-	// noise is added to each mean.
+	// If PublicPartitions are specified, this needs to be left unset.
 	//
-	// Required.
-	MaxContributionsPerPartition int64
+	// If there is only one aggregation, this can be left unset; in that case
+	// the entire budget reserved for partition selection in the PrivacySpec
+	// is consumed.
+	//
+	// Optional.
+	PartitionSelectionParams PartitionSelectionParams
 	// You can input the list of partitions present in the output if you know
 	// them in advance. When you specify partitions, partition selection /
 	// thresholding will be disabled and partitions will appear in the output
@@ -78,8 +70,29 @@ type DistinctPerKeyParams struct {
 	// can fit into memory (e.g., up to a million). Prefer beam.PCollection
 	// otherwise.
 	//
+	// If PartitionSelectionParams are specified, this needs to be left unset.
+	//
 	// Optional.
-	PublicPartitions interface{}
+	PublicPartitions any
+	// The maximum number of distinct keys that a given privacy identifier
+	// can influence. If a privacy identifier is associated to more keys,
+	// random keys will be dropped. There is an inherent trade-off when
+	// choosing this parameter: a larger MaxPartitionsContributed leads to less
+	// data loss due to contribution bounding, but since the noise added in
+	// aggregations is scaled according to maxPartitionsContributed, it also
+	// means that more noise is added to each count.
+	//
+	// Required.
+	MaxPartitionsContributed int64
+	// The maximum number of distinct values a given privacy identifier can
+	// contribute to for each key. There is an inherent trade-off when choosing this
+	// parameter: a larger MaxContributionsPerPartition leads to less data loss due
+	// to contribution bounding, but since the noise added in aggregations is
+	// scaled according to maxContributionsPerPartition, it also means that more
+	// noise is added to each mean.
+	//
+	// Required.
+	MaxContributionsPerPartition int64
 }
 
 // DistinctPerKey estimates the number of distinct values associated to
@@ -103,11 +116,6 @@ func DistinctPerKey(s beam.Scope, pcol PrivatePCollection, params DistinctPerKey
 	if pcol.codec == nil {
 		log.Fatalf("DistinctPerKey: no codec found for the input PrivatePCollection.")
 	}
-	spec := pcol.privacySpec
-	maxPartitionsContributed, err := getMaxPartitionsContributed(spec, params.MaxPartitionsContributed)
-	if err != nil {
-		log.Fatalf("Couldn't get MaxPartitionsContributed for DistinctPerKey: %v", err)
-	}
 
 	var noiseKind noise.Kind
 	if params.NoiseKind == nil {
@@ -119,11 +127,20 @@ func DistinctPerKey(s beam.Scope, pcol PrivatePCollection, params DistinctPerKey
 
 	// We get the total budget for DistinctPerKey with getBudget, split it and
 	// consume it separately in partition selection and Count with consumeBudget.
-	epsilon, delta, err := spec.getBudget(params.Epsilon, params.Delta)
+	// In the new privacy budget API, budgets are already split.
+	spec := pcol.privacySpec
+	var err error
+	params.AggregationEpsilon, params.AggregationDelta, err = spec.aggregationBudget.get(params.AggregationEpsilon, params.AggregationDelta)
 	if err != nil {
-		log.Fatalf("Couldn't consume budget for DistinctPerKey: %v", err)
+		log.Fatalf("Couldn't get aggregation budget for DistinctPerKey: %v", err)
 	}
-	err = checkDistinctPerKeyParams(params, epsilon, delta, noiseKind, maxPartitionsContributed, pcol.codec.KType.T)
+	if params.PublicPartitions == nil {
+		params.PartitionSelectionParams.Epsilon, params.PartitionSelectionParams.Delta, err = spec.partitionSelectionBudget.get(params.PartitionSelectionParams.Epsilon, params.PartitionSelectionParams.Delta)
+		if err != nil {
+			log.Fatalf("Couldn't get partition selection budget for DistinctPerKey: %v", err)
+		}
+	}
+	err = checkDistinctPerKeyParams(params, noiseKind, pcol.codec.KType.T)
 	if err != nil {
 		log.Fatalf("pbeam.DistinctPerKey: %v", err)
 	}
@@ -138,7 +155,7 @@ func DistinctPerKey(s beam.Scope, pcol PrivatePCollection, params DistinctPerKey
 	// This is not great in terms of utility, since dropping contributions randomly might
 	// mean that we keep duplicates instead of distinct values. However, this is necessary
 	// for the current algorithm to be DP.
-	if spec.testMode != noNoiseWithoutContributionBounding {
+	if spec.testMode != TestModeWithoutContributionBounding {
 		// First, rekey by kv.Pair{ID,K} and do per-partition contribution bounding.
 		rekeyed := beam.ParDo(
 			s,
@@ -170,7 +187,7 @@ func DistinctPerKey(s beam.Scope, pcol PrivatePCollection, params DistinctPerKey
 			decoded,
 			beam.TypeDefinition{Var: beam.VType, T: codedVSliceType.Type()}) // PCollection<kv.Pair{ID,K}, []codedV>, where codedV=[]byte
 
-		flattened := beam.ParDo(s, flattenValuesFn, rekeyed) // PCollection<kv.Pair{ID,K}, codedV>, where codedV=[]byte
+		flattened := beam.ParDo(s, flattenValues, rekeyed) // PCollection<kv.Pair{ID,K}, codedV>, where codedV=[]byte
 
 		pcol.col = beam.ParDo(
 			s,
@@ -179,19 +196,16 @@ func DistinctPerKey(s beam.Scope, pcol PrivatePCollection, params DistinctPerKey
 			beam.TypeDefinition{Var: beam.WType, T: idT.Type()}) // PCollection<ID, kv.Pair{K,V}>
 	}
 
-	// Perform partition selection
+	// Perform partition selection.
 	// We do partition selection after cross-partition contribution bounding because
 	// we want to keep the same contributions across partitions for partition selection
 	// and Count.
-	var partitions interface{}
-	var noiseEpsilon, partitionSelectionEpsilon, noiseDelta, partitionSelectionDelta float64
-	if params.PublicPartitions != nil {
-		partitions = params.PublicPartitions
-		noiseEpsilon = epsilon
-		noiseDelta = delta
-	} else {
-		noiseEpsilon, partitionSelectionEpsilon, noiseDelta, partitionSelectionDelta = splitBudget(epsilon, delta, noiseKind)
-		partitions = SelectPartitions(s, pcol, SelectPartitionsParams{Epsilon: partitionSelectionEpsilon, Delta: partitionSelectionDelta, MaxPartitionsContributed: params.MaxPartitionsContributed})
+	if params.PublicPartitions == nil {
+		params.PublicPartitions = SelectPartitions(s, pcol, SelectPartitionsParams{
+			Epsilon:                  params.PartitionSelectionParams.Epsilon,
+			Delta:                    params.PartitionSelectionParams.Delta,
+			MaxPartitionsContributed: params.MaxPartitionsContributed,
+		})
 	}
 
 	// Keep only one privacyKey per (partitionKey, value) pair
@@ -208,16 +222,16 @@ func DistinctPerKey(s beam.Scope, pcol PrivatePCollection, params DistinctPerKey
 	pcol.codec = nil
 	return Count(s, pcol, CountParams{
 		NoiseKind:                params.NoiseKind,
-		Epsilon:                  noiseEpsilon,
-		Delta:                    noiseDelta,
+		AggregationEpsilon:       params.AggregationEpsilon,
+		AggregationDelta:         params.AggregationDelta,
 		MaxPartitionsContributed: params.MaxPartitionsContributed,
 		MaxValue:                 params.MaxContributionsPerPartition,
-		PublicPartitions:         partitions,
+		PublicPartitions:         params.PublicPartitions,
 	})
 }
 
 // splitBudget splits the privacy budget between adding noise and partition selection for DistinctPerKey.
-func splitBudget(epsilon, delta float64, noiseKind noise.Kind) (noiseEpsilon float64, partitionSelectionEpsilon float64, noiseDelta float64, partitionSelectionDelta float64) {
+func splitBudget(epsilon, delta float64, noiseKind noise.Kind) (noiseEpsilon float64, noiseDelta float64, partitionSelectionEpsilon float64, partitionSelectionDelta float64) {
 	noiseEpsilon = epsilon / 2
 	partitionSelectionEpsilon = epsilon - noiseEpsilon
 	switch noiseKind {
@@ -230,19 +244,31 @@ func splitBudget(epsilon, delta float64, noiseKind noise.Kind) (noiseEpsilon flo
 	default:
 		log.Fatalf("splitBudget: unknown noise.Kind (%v) is specified. Please specify a valid noise.", noiseKind)
 	}
-	return noiseEpsilon, partitionSelectionEpsilon, noiseDelta, partitionSelectionDelta
+	return noiseEpsilon, noiseDelta, partitionSelectionEpsilon, partitionSelectionDelta
 }
 
-func checkDistinctPerKeyParams(params DistinctPerKeyParams, epsilon, delta float64, noiseKind noise.Kind, maxPartitionsContributed int64, partitionType reflect.Type) error {
+func checkDistinctPerKeyParams(params DistinctPerKeyParams, noiseKind noise.Kind, partitionType reflect.Type) error {
 	err := checkPublicPartitions(params.PublicPartitions, partitionType)
 	if err != nil {
 		return err
 	}
-	err = checkDelta(delta, noiseKind, params.PublicPartitions)
+	err = checkAggregationEpsilon(params.AggregationEpsilon)
 	if err != nil {
 		return err
 	}
-	err = checks.CheckEpsilon(epsilon)
+	err = checkAggregationDelta(params.AggregationDelta, noiseKind)
+	if err != nil {
+		return err
+	}
+	err = checkPartitionSelectionEpsilon(params.PartitionSelectionParams.Epsilon, params.PublicPartitions)
+	if err != nil {
+		return err
+	}
+	err = checkPartitionSelectionDelta(params.PartitionSelectionParams.Delta, params.PublicPartitions)
+	if err != nil {
+		return err
+	}
+	err = checkMaxPartitionsContributedPartitionSelection(params.PartitionSelectionParams.MaxPartitionsContributed)
 	if err != nil {
 		return err
 	}

@@ -17,7 +17,6 @@
 package com.google.privacy.differentialprivacy;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.common.truth.Truth8.assertThat;
 import static com.google.privacy.differentialprivacy.proto.SummaryOuterClass.MechanismType.GAUSSIAN;
 import static com.google.privacy.differentialprivacy.proto.SummaryOuterClass.MechanismType.LAPLACE;
 import static org.junit.Assert.assertThrows;
@@ -26,14 +25,12 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.doubleThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.privacy.differentialprivacy.proto.SummaryOuterClass.CountSummary;
 import com.google.privacy.differentialprivacy.proto.SummaryOuterClass.MechanismType;
 import com.google.protobuf.InvalidProtocolBufferException;
-import java.util.Collection;
 import java.util.Optional;
 import org.junit.Before;
 import org.junit.Rule;
@@ -59,7 +56,6 @@ public class CountTest {
   private static final double THRESHOLD_DELTA = 1e-10;
 
   @Mock private Noise noise;
-  @Mock private Collection<Double> hugeCollection;
   @Rule public final MockitoRule mocks = MockitoJUnit.rule();
 
   private Count count;
@@ -68,8 +64,6 @@ public class CountTest {
   public void setUp() {
     // Mock the noise mechanism so that it does not add any noise.
     when(noise.addNoise(anyLong(), anyInt(), anyLong(), anyDouble(), anyDouble()))
-        .thenAnswer(invocation -> invocation.getArguments()[0]);
-    when(noise.addNoise(anyLong(), anyInt(), anyLong(), anyDouble(), isNull()))
         .thenAnswer(invocation -> invocation.getArguments()[0]);
     // Tests that use serialization need to access to the type of the noise they use. Because the
     // tests don't rely on a specific noise type, we arbitrarily return Gaussian.
@@ -82,8 +76,6 @@ public class CountTest {
             .noise(noise)
             .maxPartitionsContributed(1)
             .build();
-
-    when(hugeCollection.size()).thenReturn(Integer.MAX_VALUE);
   }
 
   @Test
@@ -116,10 +108,10 @@ public class CountTest {
   }
 
   @Test
-  public void incrementBy_ignoresNegativeValues() {
+  public void incrementBy_allowsNegativeValues() {
     count.incrementBy(-100);
 
-    assertThat(count.computeResult()).isEqualTo(0);
+    assertThat(count.computeResult()).isEqualTo(-100);
   }
 
   @Test
@@ -163,7 +155,7 @@ public class CountTest {
   }
 
   @Test
-  public void incrementBy_hugeValues_dontOverflow() {
+  public void incrementBy_hugeIntegerValues_dontOverflow() {
     count.incrementBy(Integer.MAX_VALUE);
     count.incrementBy(Integer.MAX_VALUE);
     count.increment();
@@ -173,6 +165,25 @@ public class CountTest {
     long expected = Integer.MAX_VALUE * 2L + 3L;
     long actualResult = count.computeResult();
     assertThat(actualResult).isEqualTo(expected);
+  }
+
+  @Test
+  public void incrementBy_hugeLongValues_doOverflow() {
+    count.incrementBy(Long.MAX_VALUE);
+    count.increment();
+    count.increment();
+
+    assertThat(count.computeResult()).isEqualTo(Long.MIN_VALUE + 1);
+  }
+
+  @Test
+  public void incrementBy_hugeLongValues_doOverflowByNoise() {
+    // Mock the noise mechanism so that it always generates 1.
+    when(noise.addNoise(anyLong(), anyInt(), anyLong(), anyDouble(), anyDouble()))
+        .thenAnswer(invocation -> (long) invocation.getArguments()[0] + 1);
+    count.incrementBy(Long.MAX_VALUE);
+
+    assertThat(count.computeResult()).isEqualTo(Long.MIN_VALUE);
   }
 
   @Test
@@ -346,8 +357,8 @@ public class CountTest {
 
   @Test
   public void mergeWith_nullDelta_mergesWithoutException() {
-    Count targetCount = getCountBuilderWithFields().noise(new LaplaceNoise()).delta(null).build();
-    Count sourceCount = getCountBuilderWithFields().noise(new LaplaceNoise()).delta(null).build();
+    Count targetCount = getCountBuilderWithFields().noise(new LaplaceNoise()).delta(0.0).build();
+    Count sourceCount = getCountBuilderWithFields().noise(new LaplaceNoise()).delta(0.0).build();
     // no exception is thrown
     targetCount.mergeWith(sourceCount.getSerializableSummary());
   }
@@ -363,7 +374,7 @@ public class CountTest {
 
   @Test
   public void mergeWith_noiseMismatch_throwsException() {
-    Count targetCount = getCountBuilderWithFields().noise(new LaplaceNoise()).delta(null).build();
+    Count targetCount = getCountBuilderWithFields().noise(new LaplaceNoise()).delta(0.0).build();
     Count sourceCount = getCountBuilderWithFields().noise(new GaussianNoise()).build();
     assertThrows(
         IllegalArgumentException.class,
@@ -477,7 +488,7 @@ public class CountTest {
     // extreme in the sense that it would result in numerical inaccuracies if
     // thresholdDeltaPerPartition is computed naively.
     count = getCountBuilderWithFields().maxPartitionsContributed(12345).build();
-    count.computeThresholdedResult(/*thresholdDelta=*/ 5.4321e-60);
+    count.computeThresholdedResult(/* thresholdDelta= */ 5.4321e-60);
 
     // The anticipated value of thresholdDeltaPerPartition is
     // thresholdDeltaPerPartition = 1 - (1 - thresholdDelta)^(1 / maxPartitionsContributed)
@@ -526,7 +537,7 @@ public class CountTest {
   public void computeThresholdedResult_forLaplace_appliesCorrectThreshold() {
     when(noise.getMechanismType()).thenReturn(LAPLACE);
     when(noise.computeQuantile(
-            anyDouble(), anyDouble(), anyInt(), anyDouble(), anyDouble(), isNull()))
+            anyDouble(), anyDouble(), anyInt(), anyDouble(), anyDouble(), eq(0.0)))
         .thenAnswer(
             invocation ->
                 new LaplaceNoise()
