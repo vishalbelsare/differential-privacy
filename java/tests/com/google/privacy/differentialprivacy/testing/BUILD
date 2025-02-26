@@ -13,9 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-package(default_visibility = [
-    "//visibility:public",
-])
+load("@rules_java//java:defs.bzl", "java_library", "java_test")
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
 
 java_test(
     name = "reference_noise_util_test",
@@ -143,6 +147,27 @@ java_test(
     # The shard count must match the number of test cases defined in bounded_sum_dp_test_cases.textproto
     shard_count = 38,
     test_class = "com.google.privacy.differentialprivacy.testing.BoundedSumDpTestCasesValidityTest",
+    deps = [
+        "//main/com/google/privacy/differentialprivacy/testing:reference_noise",
+        "//main/com/google/privacy/differentialprivacy/testing:statistical_utils",
+        "@com_google_differential_privacy//proto/testing:statistical_tests_java_proto",
+        "@maven//:com_google_guava_guava",
+        "@maven//:com_google_protobuf_protobuf_java",
+        "@maven//:com_google_truth_truth",
+        "@maven//:junit_junit",
+    ],
+)
+
+java_test(
+    name = "long_bounded_sum_dp_test_cases_validity_tests",
+    size = "enormous",
+    srcs = ["LongBoundedSumDpTestCasesValidityTest.java"],
+    resources = [
+        "@com_google_differential_privacy//proto/testing:long_bounded_sum_dp_test_cases.textproto",
+    ],
+    # The shard count must match the number of test cases defined in long_bounded_sum_dp_test_cases.textproto
+    shard_count = 38,
+    test_class = "com.google.privacy.differentialprivacy.testing.LongBoundedSumDpTestCasesValidityTest",
     deps = [
         "//main/com/google/privacy/differentialprivacy/testing:reference_noise",
         "//main/com/google/privacy/differentialprivacy/testing:statistical_utils",

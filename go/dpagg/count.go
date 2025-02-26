@@ -20,7 +20,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/google/differential-privacy/go/v2/noise"
+	"github.com/google/differential-privacy/go/v3/checks"
+	"github.com/google/differential-privacy/go/v3/noise"
 )
 
 // Count calculates a differentially private count of a collection of values
@@ -125,6 +126,12 @@ func (c *Count) Increment() error {
 // IncrementBy increments the count by the given value.
 // Note that this shouldn't be used to count multiple contributions to a
 // single partition from the same privacy unit.
+//
+// It could, for example, be used to increment the count by k privacy
+// units at once.
+//
+// Note that decrementing counts by inputting a negative value is allowed,
+// for example if you want to remove some users you have previously added.
 func (c *Count) IncrementBy(count int64) error {
 	if c.state != defaultState {
 		return fmt.Errorf("Count cannot be amended: %v", c.state.errorMessage())
@@ -170,7 +177,7 @@ func checkMergeCount(c1, c2 *Count) error {
 // result.
 func (c *Count) Result() (int64, error) {
 	if c.state != defaultState {
-		return 0, fmt.Errorf("Count's noised result cannot be computed: " + c.state.errorMessage())
+		return 0, fmt.Errorf("Count's noised result cannot be computed: %s", c.state.errorMessage())
 	}
 	c.state = resultReturned
 	var err error
@@ -182,8 +189,8 @@ func (c *Count) Result() (int64, error) {
 // So, if the result is less than the threshold specified by the parameters of Count
 // as well as thresholdDelta, it returns nil. Otherwise, it returns the result.
 //
-// Note that the nil results should not be published when the existence of a
-// partition in the output depends on private data.
+// Note that partitions associated with nil results should not be published if the mere
+// existence of partitions is determined by private data.
 func (c *Count) ThresholdedResult(thresholdDelta float64) (*int64, error) {
 	threshold, err := c.Noise.Threshold(c.l0Sensitivity, float64(c.lInfSensitivity), c.epsilon, c.delta, thresholdDelta)
 	if err != nil {
@@ -196,6 +203,47 @@ func (c *Count) ThresholdedResult(thresholdDelta float64) (*int64, error) {
 	// Rounding up the threshold when converting it to int64 to ensure that no DP guarantees
 	// are violated due to a result being returned that is less than the fractional threshold.
 	if result < int64(math.Ceil(threshold)) {
+		return nil, nil
+	}
+	return &result, nil
+}
+
+// PreThresholdedResult is similar to ThresholdedResult() but applies a deterministic
+// 'pre-threshold' before applying the differentially private threshold.
+//
+// So, if the raw count is less than the specified pre-threshold or if the noisy result
+// is less than preThreshold+dpThreshold, it returns nil.
+// Otherwise, it returns the result.
+//
+// Note that partitions associated with nil results should not be published if the mere
+// existence of partitions is determined by private data.
+func (c *Count) PreThresholdedResult(preThreshold int64, thresholdDelta float64) (*int64, error) {
+	if err := checks.CheckPreThreshold(preThreshold); err != nil {
+		return nil, fmt.Errorf("Count's Pre-Thresholded Result cannot be computed: %w", err)
+	}
+	// Set PreThreshold to default 1 if not specified.
+	if preThreshold < 1 {
+		preThreshold = 1
+	}
+	// Pre-thresholding guarantees that at least this number of unique contributions are in the
+	// partition.
+	if c.count < preThreshold {
+		return nil, nil
+	}
+
+	threshold, err := c.Noise.Threshold(c.l0Sensitivity, float64(c.lInfSensitivity), c.epsilon, c.delta, thresholdDelta)
+	if err != nil {
+		return nil, err
+	}
+	result, err := c.Result()
+	if err != nil {
+		return nil, err
+	}
+	// Rounding up the threshold when converting it to int64 to ensure that no DP guarantees
+	// are violated due to a result being returned that is less than the fractional threshold.
+	if result < int64(math.Ceil(threshold))+(preThreshold-1) {
+		// PreThreshold is set to 1 as the default, we subtract it here so it has no effect.
+		// This subtraction also ensures that partition might be kept if preThreshold = count.
 		return nil, nil
 	}
 	return &result, nil

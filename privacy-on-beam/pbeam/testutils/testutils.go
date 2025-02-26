@@ -19,99 +19,150 @@
 package testutils
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"reflect"
+	"sort"
+	"testing"
 
-	"github.com/google/differential-privacy/go/v2/dpagg"
-	"github.com/google/differential-privacy/go/v2/noise"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/kv"
+	"github.com/google/differential-privacy/go/v3/dpagg"
+	"github.com/google/differential-privacy/go/v3/noise"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/kv"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
+	"github.com/apache/beam/sdks/v2/go/pkg/beam/register"
+	"github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/filter"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/stats"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func init() {
-	beam.RegisterType(reflect.TypeOf(PairII{}))
-	beam.RegisterType(reflect.TypeOf(PairII64{}))
-	beam.RegisterType(reflect.TypeOf(PairIF64{}))
-	beam.RegisterType(reflect.TypeOf(PairICodedKV{}))
-	beam.RegisterType(reflect.TypeOf(TestInt64Metric{}))
-	beam.RegisterType(reflect.TypeOf(TestFloat64Metric{}))
-	beam.RegisterType(reflect.TypeOf(TestFloat64SliceMetric{}))
+	register.DoFn3x1[beam.W, func(*int64) bool, func(*int64) bool, string](&diffInt64Fn{})
+	register.Iter1[int64]()
+	register.DoFn3x1[int, func(*float64) bool, func(*float64) bool, string](&diffFloat64Fn{})
+	register.Iter1[float64]()
+	register.DoFn3x1[int, func(*[]float64) bool, func(*[]float64) bool, string](&diffFloat64SliceFn{})
+	register.Iter1[[]float64]()
+	register.DoFn1x1[PairIF64, error](&checkFloat64MetricsAreNoisyFn{})
+	register.DoFn1x1[PairII64, error](&checkInt64MetricsAreNoisyFn{})
+	register.DoFn1x1[int, error](&checkSomePartitionsAreDroppedFn{})
+	register.DoFn3x1[int, func(*int) bool, func(*int) bool, error](&gotExpectedNumPartitionsFn{})
+	register.Iter1[int]()
 
-	beam.RegisterType(reflect.TypeOf((*diffInt64Fn)(nil)))
-	beam.RegisterType(reflect.TypeOf((*diffFloat64Fn)(nil)))
-	beam.RegisterType(reflect.TypeOf((*diffFloat64SliceFn)(nil)))
-
-	beam.RegisterFunction(CheckNoNegativeValuesInt64Fn)
-	beam.RegisterFunction(CheckNoNegativeValuesFloat64Fn)
-	beam.RegisterFunction(CheckAllValuesNegativeFloat64Fn)
-
-	beam.RegisterType(reflect.TypeOf((*checkFloat64MetricsAreNoisyFn)(nil)))
-	beam.RegisterType(reflect.TypeOf((*checkInt64MetricsAreNoisyFn)(nil)))
-
-	beam.RegisterType(reflect.TypeOf((*checkSomePartitionsAreDroppedFn)(nil)))
-	beam.RegisterFunction(gotExpectedNumPartitionsFn)
+	register.Function1x1[int64, *int64](Int64Ptr)
+	register.Function1x1[float64, *float64](Float64Ptr)
+	register.Function1x1[beam.V, int](OneFn)
+	register.Function1x1[int64, error](CheckNoNegativeValuesInt64)
+	register.Function1x1[float64, error](CheckNoNegativeValuesFloat64)
+	register.Function1x1[float64, error](CheckAllValuesNegativeFloat64)
+	register.Function2x1[int, int, PairII](KVToPair)
+	register.Function1x2[PairII, int, int](PairToKV)
+	register.Function2x1[int, int64, PairII64](KVToPairII64)
+	register.Function1x2[PairII64, int, int64](PairII64ToKV)
+	register.Function2x1[int, float64, PairIF64](KVToPairIF64)
+	register.Function1x2[PairIF64, int, float64](PairIF64ToKV)
+	register.Function2x1[int, []float64, PairIF64Slice](KVToPairIF64Slice)
+	register.Function1x2[PairIF64Slice, int, []float64](PairIF64SliceToKV)
+	register.Function2x1[int, kv.Pair, PairICodedKV](KVToPairICodedKV)
+	register.Function1x2[PairICodedKV, int, kv.Pair](PairICodedKVToKV)
+	register.Function2x3[beam.V, []float64, beam.V, float64, error](DereferenceFloat64Slice)
+	register.Function1x2[TripleWithIntValue, int, int](TripleWithIntValueToKV)
+	register.Function1x2[TripleWithIntValue, int, TripleWithIntValue](ExtractIDFromTripleWithIntValue)
+	register.Function1x2[TripleWithFloatValue, int, float32](TripleWithFloatValueToKV)
+	register.Function1x2[TripleWithFloatValue, int, TripleWithFloatValue](ExtractIDFromTripleWithFloatValue)
+	register.Function3x1[int, func(*float64) bool, func(*float64) bool, string](lessThanOrEqualTo)
+	register.Function2x1[string, string, string](CombineDiffs)
+	register.Function1x1[string, error](ReportDiffs)
+	register.Function1x1[string, error](reportEquals)
+	register.Function1x1[string, error](reportGreaterThan)
+	register.Function3x1[beam.X, func(*int) bool, func(*int) bool, string](diffIntFn)
+	register.Function1x1[int64, bool](isNegativeInt64)
+	register.Function1x1[int, error](checkNumNegativeElemCountIsPositive)
 }
 
-// PairII, pairII64, pairIF64, PairICodedKV and the related functions are helpers
+// PairII, PairII64, PairIF64, PairICodedKV and the related functions are helpers
 // necessary to get a PCollection of KV type as input of a test Beam pipeline.
 
 // PairII holds a key-value pair of type (int, int).
 type PairII struct {
-	A int
-	B int
+	Key   int
+	Value int
 }
 
 // PairToKV transforms a PairII into an (int, int) key-value pair.
-func PairToKV(p PairII) (a, b int) {
-	return p.A, p.B
+func PairToKV(p PairII) (k, v int) {
+	return p.Key, p.Value
 }
 
 // KVToPair transforms an (int, int) key-value pair into a PairII.
-func KVToPair(a, b int) PairII {
-	return PairII{a, b}
+func KVToPair(k, v int) PairII {
+	return PairII{k, v}
 }
 
 // PairII64 holds a key-value pair of type (int, int64).
 type PairII64 struct {
-	A int
-	B int64
+	Key   int
+	Value int64
+}
+
+// KVToPairII64 transforms an (int, int64) key-value pair into a PairII64.
+func KVToPairII64(v int, m int64) PairII64 {
+	return PairII64{v, m}
 }
 
 // PairII64ToKV transforms a PairII64 into an (int, int64) key-value pair.
-func PairII64ToKV(p PairII64) (a int, b int64) {
-	return p.A, p.B
+func PairII64ToKV(tm PairII64) (int, int64) {
+	return tm.Key, tm.Value
 }
 
 // PairIF64 holds a key-value pair of type (int, float64).
 type PairIF64 struct {
-	A int
-	B float64
+	Key   int
+	Value float64
 }
 
-// PairIFToKV transforms a PairIF64 into an (int, float64) key-value pair.
-func PairIFToKV(p PairIF64) (a int, b float64) {
-	return p.A, p.B
+// KVToPairIF64 transforms an (int, float64) key-value pair into a PairIF64.
+func KVToPairIF64(v int, m float64) PairIF64 {
+	return PairIF64{v, m}
+}
+
+// PairIF64ToKV transforms a PairIF64 into an (int, float64) key-value pair.
+func PairIF64ToKV(tm PairIF64) (int, float64) {
+	return tm.Key, tm.Value
+}
+
+// PairIF64Slice holds a key-value pair of type (int, []float64).
+type PairIF64Slice struct {
+	Key   int
+	Value []float64
+}
+
+// PairIF64SliceToKV transforms a PairIF64Slice into an (int, []float64) key-value pair.
+func PairIF64SliceToKV(tm PairIF64Slice) (int, []float64) {
+	return tm.Key, tm.Value
+}
+
+// KVToPairIF64Slice transforms an (int, []float64) key-value pair into a PairIF64Slice.
+func KVToPairIF64Slice(v int, m []float64) PairIF64Slice {
+	return PairIF64Slice{v, m}
 }
 
 // PairICodedKV holds a key-value pair of type (int, kv.Pair).
 type PairICodedKV struct {
-	A int
-	B kv.Pair
+	Key   int
+	Value kv.Pair
 }
 
 // PairICodedKVToKV transforms a PairICodedKV into an (int, kv.Pair) key-value pair.
 func PairICodedKVToKV(p PairICodedKV) (k int, v kv.Pair) {
-	return p.A, p.B
+	return p.Key, p.Value
 }
 
 // KVToPairICodedKV transforms an (int, kv.Pair) key-value pair into a PairICodedKV.
-func KVToPairICodedKV(a int, b kv.Pair) PairICodedKV {
-	return PairICodedKV{a, b}
+func KVToPairICodedKV(k int, v kv.Pair) PairICodedKV {
+	return PairICodedKV{k, v}
 }
 
 // MakePairsWithFixedV returns sample data where the same value is associated with
@@ -262,105 +313,51 @@ func ConcatenatePairs(slices ...[]PairII) []PairII {
 	return s
 }
 
-// TestInt64Metric holds a Value and an associated int64 metric (aggregation).
-type TestInt64Metric struct {
-	Value  int
-	Metric int64
-}
-
-// KVToInt64Metric transforms an (int, int64) key-value pair into a TestInt64Metric.
-func KVToInt64Metric(v int, m int64) TestInt64Metric {
-	return TestInt64Metric{v, m}
-}
-
-// Int64MetricToKV transforms a TestInt64Metric into an (int, int64) key-value pair.
-func Int64MetricToKV(tm TestInt64Metric) (int, int64) {
-	return tm.Value, tm.Metric
-}
-
-// TestFloat64Metric holds a Value and an associated float64 metric (aggregation).
-type TestFloat64Metric struct {
-	Value  int
-	Metric float64
-}
-
-// KVToFloat64Metric transforms an (int, float64) key-value pair into a TestFloat64Metric.
-func KVToFloat64Metric(v int, m float64) TestFloat64Metric {
-	return TestFloat64Metric{v, m}
-}
-
-// Float64MetricToKV transforms a TestFloat64Metric into an (int, float64) key-value pair.
-func Float64MetricToKV(tm TestFloat64Metric) (int, float64) {
-	return tm.Value, tm.Metric
-}
-
-// Float64MetricToInt64Metric transforms a TestFloat64Metric into a TestInt64Metric.
-func Float64MetricToInt64Metric(tm TestFloat64Metric) TestInt64Metric {
-	return TestInt64Metric{tm.Value, int64(tm.Metric)}
-}
-
-// TestFloat64SliceMetric holds a Value and an associated []float64 metric (aggregation).
-type TestFloat64SliceMetric struct {
-	Value  int
-	Metric []float64
-}
-
-// Float64SliceMetricToKV transforms a TestFloat64SliceMetric into an (int, []float64) key-value pair.
-func Float64SliceMetricToKV(tm TestFloat64SliceMetric) (int, []float64) {
-	return tm.Value, tm.Metric
-}
-
-// KVToFloat64SliceMetric transforms an (int, []float64) key-value pair into a TestFloat64SliceMetric.
-func KVToFloat64SliceMetric(v int, m []float64) TestFloat64SliceMetric {
-	return TestFloat64SliceMetric{v, m}
-}
-
 // EqualsKVInt checks that two PCollections col1 and col2 of type
 // <K,int> are exactly equal.
-func EqualsKVInt(s beam.Scope, col1, col2 beam.PCollection) error {
+func EqualsKVInt(t *testing.T, s beam.Scope, col1, col2 beam.PCollection) {
+	t.Helper()
 	wantV := reflect.TypeOf(int(0))
 	if err := checkValueType(col1, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col1: %v", err)
+		t.Fatalf("EqualsKVInt: unexpected value type for col1: %v", err)
 	}
 	if err := checkValueType(col2, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col2: %v", err)
+		t.Fatalf("EqualsKVInt: unexpected value type for col2: %v", err)
 	}
 
 	coGroupToValue := beam.CoGroupByKey(s, col1, col2)
 	diffs := beam.ParDo(s, diffIntFn, coGroupToValue)
-	combinedDiff := beam.Combine(s, combineDiffs, diffs)
-	beam.ParDo0(s, reportDiffs, combinedDiff)
-	return nil
+	combinedDiff := beam.Combine(s, CombineDiffs, diffs)
+	beam.ParDo0(s, ReportDiffs, combinedDiff)
 }
 
 // EqualsKVInt64 checks that two PCollections col1 and col2 of type
 // <K,int64> are exactly equal. Each key can only hold a single value.
-func EqualsKVInt64(s beam.Scope, col1, col2 beam.PCollection) error {
-	return ApproxEqualsKVInt64(s, col1, col2, 0.0)
+func EqualsKVInt64(t *testing.T, s beam.Scope, col1, col2 beam.PCollection) {
+	ApproxEqualsKVInt64(t, s, col1, col2, 0.0)
 }
 
 // EqualsKVFloat64 checks that two PCollections col1 and col2 of type
 // <K,float64> are exactly equal. Each key can only hold a single value.
-func EqualsKVFloat64(s beam.Scope, col1, col2 beam.PCollection) error {
-	return ApproxEqualsKVFloat64(s, col1, col2, 0.0)
+func EqualsKVFloat64(t *testing.T, s beam.Scope, col1, col2 beam.PCollection) {
+	ApproxEqualsKVFloat64(t, s, col1, col2, 0.0)
 }
 
 // NotEqualsFloat64 checks that two PCollections col1 and col2 of type
 // <K,float64> are different. Each key can only hold a single value.
-func NotEqualsFloat64(s beam.Scope, col1, col2 beam.PCollection) error {
+func NotEqualsFloat64(t *testing.T, s beam.Scope, col1, col2 beam.PCollection) {
+	t.Helper()
 	wantV := reflect.TypeOf(float64(0))
 	if err := checkValueType(col1, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col1: %v", err)
+		t.Fatalf("NotEqualsFloat64: unexpected value type for col1: %v", err)
 	}
 	if err := checkValueType(col2, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col2: %v", err)
+		t.Fatalf("NotEqualsFloat64: unexpected value type for col2: %v", err)
 	}
-
 	coGroupToValue := beam.CoGroupByKey(s, col1, col2)
 	diffs := beam.ParDo(s, &diffFloat64Fn{Tolerance: 0.0}, coGroupToValue)
-	combinedDiff := beam.Combine(s, combineDiffs, diffs)
+	combinedDiff := beam.Combine(s, CombineDiffs, diffs)
 	beam.ParDo0(s, reportEquals, combinedDiff)
-	return nil
 }
 
 // ApproxEqualsKVInt64 checks that two PCollections col1 and col2 of type
@@ -368,20 +365,20 @@ func NotEqualsFloat64(s beam.Scope, col1, col2 beam.PCollection) error {
 // "the keys are the same in both col1 and col2, and the value associated with
 // key k in col1 is within the specified tolerance of the value associated with k
 // in col2". Each key can only hold a single value.
-func ApproxEqualsKVInt64(s beam.Scope, col1, col2 beam.PCollection, tolerance float64) error {
+func ApproxEqualsKVInt64(t *testing.T, s beam.Scope, col1, col2 beam.PCollection, tolerance float64) {
+	t.Helper()
 	wantV := reflect.TypeOf(int64(0))
 	if err := checkValueType(col1, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col1: %v", err)
+		t.Fatalf("ApproxEqualsKVInt64: unexpected value type for col1: %v", err)
 	}
 	if err := checkValueType(col2, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col2: %v", err)
+		t.Fatalf("ApproxEqualsKVInt64: unexpected value type for col2: %v", err)
 	}
 
 	coGroupToValue := beam.CoGroupByKey(s, col1, col2)
 	diffs := beam.ParDo(s, &diffInt64Fn{Tolerance: tolerance}, coGroupToValue)
-	combinedDiff := beam.Combine(s, combineDiffs, diffs)
-	beam.ParDo0(s, reportDiffs, combinedDiff)
-	return nil
+	combinedDiff := beam.Combine(s, CombineDiffs, diffs)
+	beam.ParDo0(s, ReportDiffs, combinedDiff)
 }
 
 // ApproxEqualsKVFloat64 checks that two PCollections col1 and col2 of type
@@ -389,39 +386,39 @@ func ApproxEqualsKVInt64(s beam.Scope, col1, col2 beam.PCollection, tolerance fl
 // "the keys are the same in both col1 and col2, and the value associated with
 // key k in col1 is within the specified tolerance of the value associated with k
 // in col2". Each key can only hold a single value.
-func ApproxEqualsKVFloat64(s beam.Scope, col1, col2 beam.PCollection, tolerance float64) error {
+func ApproxEqualsKVFloat64(t *testing.T, s beam.Scope, col1, col2 beam.PCollection, tolerance float64) {
+	t.Helper()
 	wantV := reflect.TypeOf(float64(0))
 	if err := checkValueType(col1, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col1: %v", err)
+		t.Fatalf("ApproxEqualsKVFloat64: unexpected value type for col1: %v", err)
 	}
 	if err := checkValueType(col2, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col2: %v", err)
+		t.Fatalf("ApproxEqualsKVFloat64: unexpected value type for col2: %v", err)
 	}
 
 	coGroupToValue := beam.CoGroupByKey(s, col1, col2)
 	diffs := beam.ParDo(s, &diffFloat64Fn{Tolerance: tolerance}, coGroupToValue)
-	combinedDiff := beam.Combine(s, combineDiffs, diffs)
-	beam.ParDo0(s, reportDiffs, combinedDiff)
-	return nil
+	combinedDiff := beam.Combine(s, CombineDiffs, diffs)
+	beam.ParDo0(s, ReportDiffs, combinedDiff)
 }
 
 // LessThanOrEqualToKVFloat64 checks that for PCollections col1 and col2 of type
 // <K,float64>, for each key k, value corresponding to col1 is less than or equal
 // to the value corresponding in col2. Each key can only hold a single value.
-func LessThanOrEqualToKVFloat64(s beam.Scope, col1, col2 beam.PCollection) error {
+func LessThanOrEqualToKVFloat64(t *testing.T, s beam.Scope, col1, col2 beam.PCollection) {
+	t.Helper()
 	wantV := reflect.TypeOf(float64(0))
 	if err := checkValueType(col1, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col1: %v", err)
+		t.Fatalf("LessThanOrEqualToKVFloat64: unexpected value type for col1: %v", err)
 	}
 	if err := checkValueType(col2, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col2: %v", err)
+		t.Fatalf("LessThanOrEqualToKVFloat64: unexpected value type for col2: %v", err)
 	}
 
 	coGroupToValue := beam.CoGroupByKey(s, col1, col2)
 	diffs := beam.ParDo(s, lessThanOrEqualTo, coGroupToValue)
-	combinedDiff := beam.Combine(s, combineDiffs, diffs)
+	combinedDiff := beam.Combine(s, CombineDiffs, diffs)
 	beam.ParDo0(s, reportGreaterThan, combinedDiff)
-	return nil
 }
 
 // ApproxEqualsKVFloat64Slice checks that two PCollections col1 and col2 of type
@@ -429,20 +426,20 @@ func LessThanOrEqualToKVFloat64(s beam.Scope, col1, col2 beam.PCollection) error
 // "the keys are the same in both col1 and col2, and each value in the slice
 // associated with key k in col1 is within the specified tolerance of each value
 // in the slice associated with k in col2". Each key can only hold a single slice.
-func ApproxEqualsKVFloat64Slice(s beam.Scope, col1, col2 beam.PCollection, tolerance float64) error {
+func ApproxEqualsKVFloat64Slice(t *testing.T, s beam.Scope, col1, col2 beam.PCollection, tolerance float64) {
+	t.Helper()
 	wantV := reflect.TypeOf([]float64{0.0})
 	if err := checkValueType(col1, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col1: %v", err)
+		t.Fatalf("ApproxEqualsKVFloat64Slice: unexpected value type for col1: %v", err)
 	}
 	if err := checkValueType(col2, wantV); err != nil {
-		return fmt.Errorf("unexpected value type for col2: %v", err)
+		t.Fatalf("ApproxEqualsKVFloat64Slice: unexpected value type for col2: %v", err)
 	}
 
 	coGroupToValue := beam.CoGroupByKey(s, col1, col2)
 	diffs := beam.ParDo(s, &diffFloat64SliceFn{Tolerance: tolerance}, coGroupToValue)
-	combinedDiff := beam.Combine(s, combineDiffs, diffs)
-	beam.ParDo0(s, reportDiffs, combinedDiff)
-	return nil
+	combinedDiff := beam.Combine(s, CombineDiffs, diffs)
+	beam.ParDo0(s, ReportDiffs, combinedDiff)
 }
 
 func reportEquals(diffs string) error {
@@ -452,7 +449,8 @@ func reportEquals(diffs string) error {
 	return fmt.Errorf("collections are equal")
 }
 
-func reportDiffs(diffs string) error {
+// ReportDiffs returns an error if diffs is not empty.
+func ReportDiffs(diffs string) error {
 	if diffs != "" {
 		return fmt.Errorf("collections are not approximately equal. Diff (-got, +want):\n%s", diffs)
 	}
@@ -466,7 +464,8 @@ func reportGreaterThan(errors string) error {
 	return nil
 }
 
-func combineDiffs(diff1, diff2 string) string {
+// CombineDiffs concatenates two diff strings into a single string.
+func CombineDiffs(diff1, diff2 string) string {
 	if diff2 == "" {
 		return fmt.Sprintf("%s", diff1)
 	}
@@ -479,16 +478,16 @@ type diffInt64Fn struct {
 
 // ProcessElement returns a diff between values associated with a key. It
 // returns an empty string if the values are approximately equal.
-func (fn *diffInt64Fn) ProcessElement(k int, v1Iter, v2Iter func(*int64) bool) string {
+func (fn *diffInt64Fn) ProcessElement(k beam.W, v1Iter, v2Iter func(*int64) bool) string {
 	var v1 = int64PtrToSlice(v1Iter)
 	var v2 = int64PtrToSlice(v2Iter)
 	if diff := cmp.Diff(v1, v2, cmpopts.EquateApprox(0, fn.Tolerance)); diff != "" {
-		return fmt.Sprintf("For k=%d: diff=%s", k, diff)
+		return fmt.Sprintf("For k=%v: diff=%s", k, diff)
 	}
 	return ""
 }
 
-// ProcessElement returns a diff between values associated with a key. It
+// diffIntFn returns a diff between values associated with a key. It
 // returns an empty string if the values are approximately equal.
 func diffIntFn(k beam.X, v1Iter, v2Iter func(*int) bool) string {
 	var v1 = intPtrToSlice(v1Iter)
@@ -514,6 +513,7 @@ func intPtrToSlice(vIter func(*int) bool) []float64 {
 	for vIter(&v) {
 		vSlice = append(vSlice, float64(v))
 	}
+	sort.Float64s(vSlice)
 	return vSlice
 }
 
@@ -659,10 +659,17 @@ func ComplementaryGaussianTolerance(flakinessK, l0Sensitivity, lInfSensitivity, 
 // LaplaceToleranceForMean returns tolerance to be used in approxEquals for tests
 // for mean to pass with 10⁻ᵏ flakiness.
 //
-// flakinessK is the parameter used to specify k in the flakiness.
+//   - flakinessK: parameter used to specify k in the flakiness.
+//   - lower: minimum possible value of the input entities.
+//   - upper: maximum possible value of the input entities.
+//   - epsilon: the differential privacy parameter epsilon.
+//   - exactNormalizedSum: clamped (with boundaries -distanceFromMidPoint and distanceFromMidPoint)
+//     sum of distances of the input entities from the mid.
+//
 // distanceFromMidPoint = upper - midPoint, where midPoint = (lower + upper)/2.
-// exactNormalizedSum is a clamped (with boundaries -distanceFromMidPoint and distanceFromMidPoint) sum of distances of the input entities from the midPoint.
-// exactNormalizedSum is needed for calculating tolerance because the algorithm of the mean aggregation uses noisy normalized sum in its calculations.
+//
+// exactNormalizedSum is needed for calculating tolerance because the algorithm of the mean
+// aggregation uses noisy normalized sum in its calculations.
 //
 // To see the logic and the math behind flakiness and tolerance calculation,
 // See https://github.com/google/differential-privacy/blob/main/privacy-on-beam/docs/Tolerance_Calculation.pdf
@@ -673,8 +680,14 @@ func LaplaceToleranceForMean(flakinessK, lower, upper float64, maxContributionsP
 	normalizedSumFlakinessK := countFlakinessK // We use the same flakiness for simplicity.
 	halfEpsilon := epsilon / 2
 
-	_, l1Count, _ := sensitivitiesForCount(maxContributionsPerPartition, maxPartitionsContributed)
-	_, l1NormalizedSum, _ := sensitivitiesForNormalizedSum(lower, upper, maxContributionsPerPartition, maxPartitionsContributed)
+	computer := sensitivityComputer{
+		Lower:                        lower,
+		Upper:                        upper,
+		MaxContributionsPerPartition: maxContributionsPerPartition,
+		MaxPartitionsContributed:     maxPartitionsContributed,
+	}
+	l1Count := computer.SensitivitiesForCount().L1
+	l1NormalizedSum := computer.SensitivitiesForNormalizedSum().L1
 
 	countTolerance := math.Ceil(LaplaceTolerance(countFlakinessK, l1Count, halfEpsilon))
 	normalizedSumTolerance := LaplaceTolerance(normalizedSumFlakinessK, l1NormalizedSum, halfEpsilon)
@@ -684,44 +697,285 @@ func LaplaceToleranceForMean(flakinessK, lower, upper float64, maxContributionsP
 // ToleranceForMean returns tolerance to be used in approxEquals or checkMetricsAreNoisy for tests
 // for mean to pass with 10⁻ᵏ flakiness.
 //
-// flakinessK is the parameter used to specify k in the flakiness.
+//   - flakinessK: parameter used to specify k in the flakiness.
+//   - exactNormalizedSum: clamped (with boundaries -distanceFromMidPoint and distanceFromMidPoint)
+//     sum of distances of the input entities from the midPoint.
+//
 // distanceFromMidPoint = upper - midPoint, where midPoint = (lower + upper)/2.
-// exactNormalizedSum is a clamped (with boundaries -distanceFromMidPoint and distanceFromMidPoint) sum of distances of the input entities from the midPoint.
-// exactNormalizedSum is needed for calculating tolerance because the algorithm of the mean aggregation uses noisy normalized sum in its calculations.
+//
+// exactNormalizedSum is needed for calculating tolerance because the algorithm of the mean
+// aggregation uses noisy normalized sum in its calculations.
 //
 // To see the logic and the math behind flakiness and tolerance calculation,
 // see https://github.com/google/differential-privacy/blob/main/privacy-on-beam/docs/Tolerance_Calculation.pdf.
-//
-// TODO: Use confidence intervals from the DP library instead of calculation tolerance here.
 func ToleranceForMean(lower, upper, exactNormalizedSum, exactCount, exactMean, countTolerance, normalizedSumTolerance float64) (float64, error) {
 	midPoint := lower + (upper-lower)/2.0
 
-	minNoisyCount := math.Max(1.0, exactCount-countTolerance)
-	maxNoisyCount := math.Max(1.0, exactCount+countTolerance)
-	minNoisyNormalizedSum := exactNormalizedSum - normalizedSumTolerance
-	maxNoisyNormalizedSum := exactNormalizedSum + normalizedSumTolerance
-	minNoisyMeanCount := maxNoisyCount
-	maxNoisyMeanCount := minNoisyCount
-	// If the numerator (min/max noisy normalized sum) of the mean is negative,
-	// min/max noisy counts should switch places to find min/max noisy mean.
-	if minNoisyNormalizedSum < 0 {
-		minNoisyMeanCount = minNoisyCount
-	}
-	if maxNoisyNormalizedSum < 0 {
-		maxNoisyMeanCount = maxNoisyCount
-	}
-	minNoisyMean, err := dpagg.ClampFloat64(minNoisyNormalizedSum/minNoisyMeanCount+midPoint, lower, upper)
-	if err != nil {
-		return 0, err
-	}
-	maxNoisyMean, err := dpagg.ClampFloat64(maxNoisyNormalizedSum/maxNoisyMeanCount+midPoint, lower, upper)
-	if err != nil {
-		return 0, err
-	}
-	distFromMinNoisyMean := distanceBetween(exactMean, minNoisyMean)
-	distFromMaxNoisyMean := distanceBetween(maxNoisyMean, exactMean)
+	minNoisyCount := math.Max(1.0, exactCount-countTolerance)            // c_-
+	maxNoisyCount := math.Max(1.0, exactCount+countTolerance)            // c_+
+	minNoisyNormalizedSum := exactNormalizedSum - normalizedSumTolerance // s_-
+	maxNoisyNormalizedSum := exactNormalizedSum + normalizedSumTolerance // s_+
 
-	return math.Max(distFromMaxNoisyMean, distFromMinNoisyMean), nil
+	// Find m_- and m_+ such that {s \in [s_-, s_+] and c \in [c_-, c_+]} implies {m \in [m_-, m_+]}.
+	//
+	// 1. For m_-:
+	//   - If s_- >= 0, then m_- = s_-/c_+.
+	//   - Otherwise, m_- = s_-/c_-.
+	// 2. For m_+:
+	//   - If s_+ >= 0, then m_+ = s_+/c_-.
+	//   - Otherwise, m_+ = s_+/c_+.
+
+	getMBound := func(a, b, c float64) (float64, error) {
+		// If the numerator (min/max noisy normalized sum) of the mean is negative,
+		// min/max noisy counts should switch places to find min/max noisy mean.
+		normalizedBound := a / b
+		if a < 0 {
+			normalizedBound = a / c
+		}
+		return dpagg.ClampFloat64(normalizedBound+midPoint, lower, upper)
+	}
+	// Get M_- = m_- + midPoint.
+	minNoisyMean, err := getMBound(minNoisyNormalizedSum, maxNoisyCount, minNoisyCount)
+	if err != nil {
+		return 0, err
+	}
+	// Get M_+ = m_+ + midPoint.
+	maxNoisyMean, err := getMBound(maxNoisyNormalizedSum, minNoisyCount, maxNoisyCount)
+	if err != nil {
+		return 0, err
+	}
+
+	// Return the tolerance as max(|exactMean - M_-| , |exactMean - M_+|).
+	return math.Max(
+		distanceBetween(exactMean, minNoisyMean),
+		distanceBetween(maxNoisyMean, exactMean),
+	), nil
+}
+
+// VarianceStatistics is a struct that contains the statistics related to a variance aggregation.
+type VarianceStatistics struct {
+	Count                  float64
+	NormalizedSum          float64
+	NormalizedSumOfSquares float64
+	Mean                   float64
+	Variance               float64
+}
+
+// ComputeMeanVariance computes the mean and variance fields based on the other fields in
+// the original struct, plus the given bounds.
+// Remember to call this function after having Count, NormalizedSum, and NormalizedSumOfSquares,
+// and do not pass in inf or -inf as bounds.
+// If the count is zero, the mean is set to the midPoint, and variance is set to zero.
+func (s *VarianceStatistics) ComputeMeanVariance(upper, lower float64) {
+	midPoint := (lower + upper) / 2
+	if s.Count == 0 {
+		s.Mean = midPoint
+		s.Variance = 0
+	} else {
+		normalizedMean := s.NormalizedSum / s.Count
+		s.Mean = normalizedMean + midPoint
+		s.Variance = s.NormalizedSumOfSquares/s.Count - normalizedMean*normalizedMean
+	}
+}
+
+// PerPartitionVarianceStatistics calculates the variance related statistics of each partition and
+// returns a map of partition to varianceStatistics.
+func PerPartitionVarianceStatistics(
+	minValue, maxValue float64, contributions []TripleWithFloatValue,
+) map[int]VarianceStatistics {
+	midPoint := (minValue + maxValue) / 2
+	m := make(map[int]VarianceStatistics)
+	for _, triple := range contributions {
+		partition := triple.Partition
+		normalizedValue := min(maxValue, max(minValue, float64(triple.Value))) - midPoint
+		var newStats VarianceStatistics
+		if stats, ok := m[partition]; ok {
+			newStats = stats
+		}
+
+		// Insert or update the statistics for the partition.
+		newStats.Count++
+		newStats.NormalizedSum += normalizedValue
+		newStats.NormalizedSumOfSquares += normalizedValue * normalizedValue
+		m[partition] = newStats
+	}
+	for partition, stats := range m {
+		stats.ComputeMeanVariance(minValue, maxValue)
+		m[partition] = stats
+	}
+	return m
+}
+
+// PerPartitionVarianceStatisticsInt is similar to PerPartitionVarianceStatistics but for input
+// with TripleWithIntValue type.
+func PerPartitionVarianceStatisticsInt(
+	minValue, maxValue float64, contributions []TripleWithIntValue,
+) map[int]VarianceStatistics {
+	var floatTriples []TripleWithFloatValue
+	for _, t := range contributions {
+		floatTriples = append(floatTriples, TripleWithFloatValue{
+			ID:        t.ID,
+			Partition: t.Partition,
+			Value:     float32(t.Value),
+		})
+	}
+	return PerPartitionVarianceStatistics(minValue, maxValue, floatTriples)
+}
+
+// LaplaceToleranceForVariance returns tolerances to be used in approxEquals for tests
+// for variance to pass with 10⁻ᵏ flakiness.
+//
+// The return values include the tolerances for count, normalized sum, normalized sum of squares,
+// mean, and variance.
+//
+//   - flakinessK: parameter used to specify k in the flakiness.
+//   - lower: minimum possible value of the input entities.
+//   - upper: maximum possible value of the input entities.
+//   - epsilon: the differential privacy parameter epsilon.
+//   - stats.NormalizedSumOfSquares: \sum { (clamp(x_i, lower, upper) - midPoint) ^ 2 }
+//   - stats.NormalizedSum: \sum { clamp(x_i, lower, upper) - midPoint }.
+//
+// distanceFromMidPoint = upper - midPoint, where midPoint = (lower + upper)/2.
+//
+// To see the logic and the math behind flakiness and tolerance calculation,
+// See https://github.com/google/differential-privacy/blob/main/privacy-on-beam/docs/Tolerance_Calculation.pdf
+func LaplaceToleranceForVariance(
+	flakinessK, lower, upper float64, maxContributionsPerPartition, maxPartitionsContributed int64,
+	epsilon float64, stats VarianceStatistics,
+) (VarianceStatistics, error) {
+	// The term below is equivalent to -log_10(1-cbrt(1-1e-k)).
+	// It is formulated this way to increase precision and to avoid having this term go to infinity.
+	// Count, normalized sum, and normalized square sum uses the same following flakiness for simplicity.
+	newFlakinessK := -math.Log10(-math.Expm1(1 / 3. * math.Log1p(-math.Pow(10, -flakinessK))))
+	newEpsilon := epsilon / 3
+
+	computer := sensitivityComputer{
+		Lower:                        lower,
+		Upper:                        upper,
+		MaxContributionsPerPartition: maxContributionsPerPartition,
+		MaxPartitionsContributed:     maxPartitionsContributed,
+	}
+	l1Count := computer.SensitivitiesForCount().L1
+	l1NormalizedSum := computer.SensitivitiesForNormalizedSum().L1
+	l1NormalizedSumOfSquares := computer.SensitivitiesForNormalizedSumOfSquares().L1
+
+	countTolerance := math.Ceil(LaplaceTolerance(newFlakinessK, l1Count, newEpsilon))
+	normalizedSumTolerance := LaplaceTolerance(newFlakinessK, l1NormalizedSum, newEpsilon)
+	normalizedSumOfSquaresTolerance := LaplaceTolerance(newFlakinessK, l1NormalizedSumOfSquares, newEpsilon)
+
+	tolerances := VarianceStatistics{
+		Count:                  countTolerance,
+		NormalizedSum:          normalizedSumTolerance,
+		NormalizedSumOfSquares: normalizedSumOfSquaresTolerance,
+	}
+
+	meanTolerance, err := ToleranceForMean(
+		lower, upper, stats.NormalizedSum, stats.Count, stats.Mean,
+		countTolerance, normalizedSumTolerance,
+	)
+	if err != nil {
+		return VarianceStatistics{}, fmt.Errorf("ToleranceForMean: %w", err)
+	}
+
+	varianceTolerance, err := ToleranceForVariance(lower, upper, stats, tolerances)
+	if err != nil {
+		return VarianceStatistics{}, fmt.Errorf("ToleranceForVariance: %w", err)
+	}
+
+	tolerances.Mean = meanTolerance
+	tolerances.Variance = varianceTolerance
+
+	return tolerances, nil
+}
+
+// ToleranceForVariance returns tolerance to be used in approxEquals or checkMetricsAreNoisy for
+// tests for variance to pass with 10⁻ᵏ flakiness.
+//
+//   - flakinessK: parameter used to specify k in the flakiness.
+//   - lower: minimum possible value of the input entities.
+//   - upper: maximum possible value of the input entities.
+//   - exactStats: Count, NormalizedSum, and NormalizedSumOfSquares of the input entities.
+//   - tolerances: tolerances for count, normalized sum, and normalized sum of squares.
+//
+// To see the logic and the math behind flakiness and tolerance calculation,
+// see https://github.com/google/differential-privacy/blob/main/privacy-on-beam/docs/Tolerance_Calculation.pdf.
+func ToleranceForVariance(
+	lower, upper float64,
+	exactStats, tolerances VarianceStatistics,
+) (float64, error) {
+
+	minNoisyC := math.Max(1.0, exactStats.Count-tolerances.Count)                        // c_-
+	maxNoisyC := math.Max(1.0, exactStats.Count+tolerances.Count)                        // c_+
+	minNoisyNS := exactStats.NormalizedSum - tolerances.NormalizedSum                    // s_-
+	maxNoisyNS := exactStats.NormalizedSum + tolerances.NormalizedSum                    // s_+
+	minNoisyNSS := exactStats.NormalizedSumOfSquares - tolerances.NormalizedSumOfSquares // ss_-
+	maxNoisyNSS := exactStats.NormalizedSumOfSquares + tolerances.NormalizedSumOfSquares // ss_+
+
+	// Let mm denote the mean of noisy normalized squares, i.e. mm = ss/c.
+	// Find the lower and upper bounds of mm, i.e. mm_- <= mm <= mm_+, using the following rules:
+	//
+	// 1. For mm_-:
+	//   - If ss_- >= 0, then mm_- = ss_-/c_+.
+	//   - Otherwise, mm_- = ss_-/c_-.
+	// 2. For mm_+:
+	//   - Since ss_+ is always non-negative, mm_+ = ss_+/c_-.
+
+	// Calculate mm_-.
+	minNoisyNMM := minNoisyNSS / maxNoisyC
+	if minNoisyNSS < 0 {
+		minNoisyNMM = minNoisyNSS / minNoisyC
+	}
+	// Calculate mm_+
+	maxNoisyNMM := maxNoisyNSS / minNoisyC
+
+	// Let m denote the mean of noisy normalized values, i.e. m = s/c.
+	// Find the lower and upper bounds of m^2, i.e. (m2_-)^2 <= m^2 <= (m2_+)^2, as follows:
+	//
+	// 1. If s_- <= s_+ <= 0, then
+	//   - m2_- = (s_+/c_+)^2.
+	//   - m2_+ = (s_-/c_-)^2.
+	// 2. If s_- <= 0 <= s_+, then
+	//   - m2_- = 0.
+	//   - m2_+ = ( max(|s_-|, |s_+|)/c_- )^2.
+	// 3. If 0 <= s_- <= s_+, then
+	//   - m2_- = (s_-/c_+ )^2.
+	//   - m2_+ = (s_+/c_- )^2.
+
+	// Calculate m2_- and m2_+.
+	minNoisyNM2, maxNoisyNM2 := math.Pow(maxNoisyNS/maxNoisyC, 2), math.Pow(minNoisyNS/minNoisyC, 2)
+	if minNoisyNS <= 0 && 0 <= maxNoisyNS {
+		minNoisyNM2 = 0
+		maxNoisyNM2 = math.Pow(math.Max(-minNoisyNS, maxNoisyNS)/minNoisyC, 2)
+	} else if minNoisyNS >= 0 {
+		minNoisyNM2 = math.Pow(minNoisyNS/maxNoisyC, 2)
+		maxNoisyNM2 = math.Pow(maxNoisyNS/minNoisyC, 2)
+	}
+
+	// Because shifting the element value by midPoint does not change variance,
+	// that is we have the noisy variance V = MM - M2 = mm - m2.
+	// Given the bounds of mm and m2, we have (mm_- - m2_+) <= V <= (mm_+ - m2_-).
+
+	// Return the tolerance as max(|exactVariance - V_-| , |exactVariance - V_+|).
+	// However, we first clamp V_- and V_+ to the range [0, maxVariance],
+	// where maxVariance = (upper - lower)^2/4.
+	maxVariance := math.Pow(upper-lower, 2) / 4
+	minNoisyV := minNoisyNMM - maxNoisyNM2
+	minNoisyVariance, err := dpagg.ClampFloat64(minNoisyV, 0, maxVariance)
+	if err != nil {
+		return 0, fmt.Errorf("clamping minNoisyVariance(%v, %v, %v): %w",
+			minNoisyV, 0, maxVariance, err)
+	}
+	maxNoisyV := maxNoisyNMM - minNoisyNM2
+	maxNoisyVariance, err := dpagg.ClampFloat64(maxNoisyV, 0, maxVariance)
+	if err != nil {
+		return 0, fmt.Errorf("clamping maxNoisyVariance(%v, %v, %v): %w",
+			maxNoisyV, 0, maxVariance, err)
+	}
+
+	return math.Max(
+		distanceBetween(exactStats.Variance, minNoisyVariance),
+		distanceBetween(exactStats.Variance, maxNoisyVariance),
+	), nil
 }
 
 // QuantilesTolerance returns tolerance to be used in approxEquals for tests
@@ -733,7 +987,6 @@ func ToleranceForMean(lower, upper, exactNormalizedSum, exactCount, exactMean, c
 //
 // The tests don't disable noise, hence we multiply the tolerance by a reasonably small number,
 // in this case 5, to account for the noise addition.
-// TODO: Implement more accurate tolerance based on confidence intervals.
 func QuantilesTolerance(lower, upper float64) float64 {
 	return 5 * (upper - lower) / (math.Pow(float64(dpagg.DefaultBranchingFactor), float64(dpagg.DefaultTreeHeight)) - 1.0)
 }
@@ -742,20 +995,51 @@ func distanceBetween(a, b float64) float64 {
 	return math.Abs(a - b)
 }
 
-func sensitivitiesForNormalizedSum(lower, upper float64, maxContributionsPerPartition, maxPartitionsContributed int64) (l0Sensitivity, l1Sensitivity, lInfSensitivity float64) {
-	midPoint := lower + (upper-lower)/2.0
-	maxDistFromMidpoint := upper - midPoint
-	l0Sensitivity = float64(maxPartitionsContributed)
-	lInfSensitivity = maxDistFromMidpoint * float64(maxContributionsPerPartition)
-	l1Sensitivity = l0Sensitivity * lInfSensitivity
-	return l0Sensitivity, l1Sensitivity, lInfSensitivity
+type sensitivityComputer struct {
+	Lower, Upper                 float64
+	MaxContributionsPerPartition int64
+	MaxPartitionsContributed     int64
 }
 
-func sensitivitiesForCount(maxContributionsPerPartition, maxPartitionsContributed int64) (l0Sensitivity, l1Sensitivity, lInfSensitivity float64) {
-	l0Sensitivity = float64(maxPartitionsContributed)
-	lInfSensitivity = float64(maxContributionsPerPartition)
-	l1Sensitivity = l0Sensitivity * lInfSensitivity
-	return l0Sensitivity, l1Sensitivity, lInfSensitivity
+type sensitivity struct {
+	L0   float64 // L0 sensitivity
+	LInf float64 // LInf sensitivity
+	L1   float64 // L1 sensitivity
+}
+
+func (c *sensitivityComputer) MaxDistFromMidPoint() float64 {
+	midPoint := c.Lower + (c.Upper-c.Lower)/2.0
+	return c.Upper - midPoint
+}
+
+func (c *sensitivityComputer) MaxContributions() float64 {
+	return float64(c.MaxContributionsPerPartition) * float64(c.MaxPartitionsContributed)
+}
+
+func (c *sensitivityComputer) SensitivitiesForNormalizedSumOfSquares() sensitivity {
+	maxDistFromMidPoint := c.MaxDistFromMidPoint()
+	return sensitivity{
+		L0:   float64(c.MaxPartitionsContributed),
+		LInf: math.Pow(maxDistFromMidPoint, 2) * float64(c.MaxContributionsPerPartition),
+		L1:   math.Pow(maxDistFromMidPoint, 2) * c.MaxContributions(),
+	}
+}
+
+func (c *sensitivityComputer) SensitivitiesForNormalizedSum() sensitivity {
+	maxDistFromMidpoint := c.MaxDistFromMidPoint()
+	return sensitivity{
+		L0:   float64(c.MaxPartitionsContributed),
+		LInf: maxDistFromMidpoint * float64(c.MaxContributionsPerPartition),
+		L1:   maxDistFromMidpoint * c.MaxContributions(),
+	}
+}
+
+func (c *sensitivityComputer) SensitivitiesForCount() sensitivity {
+	return sensitivity{
+		L0:   float64(c.MaxPartitionsContributed),
+		LInf: float64(c.MaxContributionsPerPartition),
+		L1:   float64(c.MaxContributionsPerPartition) * float64(c.MaxPartitionsContributed),
+	}
 }
 
 // Int64Ptr transforms an int64 into an *int64.
@@ -768,8 +1052,8 @@ func Float64Ptr(f float64) *float64 {
 	return &f
 }
 
-// CheckFloat64MetricsAreNoisy checks that no values in a PCollection<testFloat64Metric>
-// (where testFloat64Metric contains the aggregate statistic) is equal to exactMetric.
+// CheckFloat64MetricsAreNoisy checks that no values in a PCollection<pairIF64>
+// (where pairIF64 contains the aggregate statistic) is equal to exactMetric.
 func CheckFloat64MetricsAreNoisy(s beam.Scope, col beam.PCollection, exactMetric, tolerance float64) {
 	beam.ParDo0(s, &checkFloat64MetricsAreNoisyFn{exactMetric, tolerance}, col)
 }
@@ -779,15 +1063,15 @@ type checkFloat64MetricsAreNoisyFn struct {
 	Tolerance   float64
 }
 
-func (fn *checkFloat64MetricsAreNoisyFn) ProcessElement(m TestFloat64Metric) error {
-	if cmp.Equal(m.Metric, fn.ExactMetric, cmpopts.EquateApprox(0, fn.Tolerance)) {
-		return fmt.Errorf("found a non-noisy output of %f for (value, exactOutput)=(%d, %f)", m.Metric, m.Value, fn.ExactMetric)
+func (fn *checkFloat64MetricsAreNoisyFn) ProcessElement(m PairIF64) error {
+	if cmp.Equal(m.Value, fn.ExactMetric, cmpopts.EquateApprox(0, fn.Tolerance)) {
+		return fmt.Errorf("found a non-noisy output of %f for (key, exactOutput)=(%d, %f)", m.Value, m.Key, fn.ExactMetric)
 	}
 	return nil
 }
 
-// CheckInt64MetricsAreNoisy checks that no values in a PCollection<testInt64Metric>
-// (where testInt64Metric contains the aggregate statistic) is equal to exactMetric.
+// CheckInt64MetricsAreNoisy checks that no values in a PCollection<pairII64>
+// (where pairII64 contains the aggregate statistic) is equal to exactMetric.
 func CheckInt64MetricsAreNoisy(s beam.Scope, col beam.PCollection, exactMetric int, tolerance float64) {
 	beam.ParDo0(s, &checkInt64MetricsAreNoisyFn{exactMetric, tolerance}, col)
 }
@@ -797,9 +1081,9 @@ type checkInt64MetricsAreNoisyFn struct {
 	Tolerance   float64
 }
 
-func (fn *checkInt64MetricsAreNoisyFn) ProcessElement(m TestInt64Metric) error {
-	if cmp.Equal(float64(m.Metric), float64(fn.ExactMetric), cmpopts.EquateApprox(0, fn.Tolerance)) {
-		return fmt.Errorf("found a non-noisy output of %d for (value, exactOutput)=(%d, %d)", m.Metric, m.Value, fn.ExactMetric)
+func (fn *checkInt64MetricsAreNoisyFn) ProcessElement(m PairII64) error {
+	if cmp.Equal(float64(m.Value), float64(fn.ExactMetric), cmpopts.EquateApprox(0, fn.Tolerance)) {
+		return fmt.Errorf("found a non-noisy output of %d for (key, exactOutput)=(%d, %d)", m.Value, m.Key, fn.ExactMetric)
 	}
 	return nil
 }
@@ -829,24 +1113,43 @@ func (fn *checkSomePartitionsAreDroppedFn) ProcessElement(i int) error {
 	return nil
 }
 
-// CheckNoNegativeValuesInt64Fn returns an error if an int64 value is negative.
-func CheckNoNegativeValuesInt64Fn(v int64) error {
+// CheckNoNegativeValuesInt64 returns an error if an int64 value is negative.
+func CheckNoNegativeValuesInt64(v int64) error {
 	if v < 0 {
 		return fmt.Errorf("unexpected negative element: %v", v)
 	}
 	return nil
 }
 
-// CheckNoNegativeValuesFloat64Fn returns an error if an float64 value is negative.
-func CheckNoNegativeValuesFloat64Fn(v float64) error {
+func isNegativeInt64(v int64) bool {
+	return v < 0
+}
+
+func checkNumNegativeElemCountIsPositive(elemCount int) error {
+	if elemCount == 0 {
+		return errors.New("want at least one negative value, but got 0")
+	}
+	return nil
+}
+
+// CheckAtLeastOneValueNegativeInt64 operates on a PCollection<int64> and will
+// return an error during runtime if none of the int64 values is negative.
+func CheckAtLeastOneValueNegativeInt64(s beam.Scope, col beam.PCollection) {
+	negativeValues := filter.Include(s, col, isNegativeInt64)
+	numNegativeValues := stats.CountElms(s, negativeValues)
+	beam.ParDo0(s, checkNumNegativeElemCountIsPositive, numNegativeValues)
+}
+
+// CheckNoNegativeValuesFloat64 returns an error if an float64 value is negative.
+func CheckNoNegativeValuesFloat64(v float64) error {
 	if v < 0 {
 		return fmt.Errorf("unexpected negative element: %v", v)
 	}
 	return nil
 }
 
-// CheckAllValuesNegativeFloat64Fn returns an error if an float64 value is non-negative.
-func CheckAllValuesNegativeFloat64Fn(v float64) error {
+// CheckAllValuesNegativeFloat64 returns an error if an float64 value is non-negative.
+func CheckAllValuesNegativeFloat64(v float64) error {
 	if v >= 0 {
 		return fmt.Errorf("unexpected non-negative element: %v", v)
 	}
@@ -861,6 +1164,12 @@ func ApproxEquals(x, y float64) bool {
 
 // CheckNumPartitions checks that col has expected number of partitions.
 func CheckNumPartitions(s beam.Scope, col beam.PCollection, expected int) {
+	CheckApproxNumPartitions(s, col, expected, 0)
+}
+
+// CheckApproxNumPartitions checks that col has approximately expected number of partitions.
+// col is allowed to have number of partitions within tolerance of expected.
+func CheckApproxNumPartitions(s beam.Scope, col beam.PCollection, expected, tolerance int) {
 	ones := beam.ParDo(s, OneFn, col)
 	numPartitions := stats.Sum(s, ones)
 	numPartitions = beam.AddFixedKey(s, numPartitions)
@@ -868,13 +1177,20 @@ func CheckNumPartitions(s beam.Scope, col beam.PCollection, expected int) {
 	want := beam.Create(s, expected)
 	want = beam.AddFixedKey(s, want)
 	coGroupToValue := beam.CoGroupByKey(s, numPartitions, want)
-	beam.ParDo0(s, gotExpectedNumPartitionsFn, coGroupToValue)
+	beam.ParDo0(s, &gotExpectedNumPartitionsFn{tolerance}, coGroupToValue)
 }
 
-func gotExpectedNumPartitionsFn(_ int, v1Iter, v2Iter func(*int) bool) error {
+type gotExpectedNumPartitionsFn struct {
+	Tolerance int
+}
+
+func (fn *gotExpectedNumPartitionsFn) ProcessElement(_ int, v1Iter, v2Iter func(*int) bool) error {
 	got := getNumPartitions(v1Iter)
 	want := getNumPartitions(v2Iter)
-	if got != want {
+	if math.Abs(float64(got-want)) > float64(fn.Tolerance) {
+		if fn.Tolerance != 0 {
+			return fmt.Errorf("got %d emitted partitions, want %d +- %d", got, want, fn.Tolerance)
+		}
 		return fmt.Errorf("got %d emitted partitions, want %d", got, want)
 	}
 	return nil

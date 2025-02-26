@@ -9,9 +9,7 @@ on:
     branches-ignore:
     # Version 1.0 does not work with the "go" tool properly.
     - "1.0"
-  schedule:
-    # Every Thursday at 1PM UTC
-    - cron: "0 13 * * 4"
+  workflow_dispatch:
 
 jobs:
 
@@ -24,7 +22,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
-        go-version: 1.16
+        go-version: 1.22
 
     - name: Build go
       run: go build -mod=mod -v ./...

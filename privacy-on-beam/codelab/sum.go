@@ -17,13 +17,15 @@
 package codelab
 
 import (
-	"github.com/google/differential-privacy/privacy-on-beam/v2/pbeam"
+	log "github.com/golang/glog"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/pbeam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
+	"github.com/apache/beam/sdks/v2/go/pkg/beam/register"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/stats"
 )
 
 func init() {
-	beam.RegisterFunction(extractVisitHourAndMoneySpentFn)
+	register.Function1x2[Visit, int, int](extractVisitHourAndMoneySpentFn)
 }
 
 // RevenuePerHour calculates and returns the total money spent by visitors
@@ -45,7 +47,10 @@ func extractVisitHourAndMoneySpentFn(v Visit) (int, int) {
 func PrivateRevenuePerHour(s beam.Scope, col beam.PCollection) beam.PCollection {
 	s = s.Scope("PrivateRevenuePerHour")
 	// Create a Privacy Spec and convert col into a PrivatePCollection.
-	spec := pbeam.NewPrivacySpec(epsilon /* delta */, 0)
+	spec, err := pbeam.NewPrivacySpec(pbeam.PrivacySpecParams{AggregationEpsilon: epsilon})
+	if err != nil {
+		log.Fatalf("Couldn't create a PrivacySpec: %v", err)
+	}
 	pCol := pbeam.MakePrivateFromStruct(s, col, spec, "VisitorID")
 
 	// Create a PCollection of output partitions, i.e. restaurant's work hours (from 9 am till 9pm (exclusive)).

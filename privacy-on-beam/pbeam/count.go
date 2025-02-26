@@ -21,9 +21,8 @@ import (
 	"reflect"
 
 	log "github.com/golang/glog"
-	"github.com/google/differential-privacy/go/v2/checks"
-	"github.com/google/differential-privacy/go/v2/noise"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/kv"
+	"github.com/google/differential-privacy/go/v3/noise"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/kv"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/transforms/stats"
 )
@@ -35,29 +34,20 @@ type CountParams struct {
 	// Defaults to LaplaceNoise{}.
 	NoiseKind NoiseKind
 	// Differential privacy budget consumed by this aggregation. If there is
-	// only one aggregation, both Epsilon and Delta can be left 0; in that
-	// case, the entire budget of the PrivacySpec is consumed.
-	Epsilon, Delta float64
-	// The maximum number of distinct values that a given privacy identifier
-	// can influence. If a privacy identifier is associated with more values,
-	// random values will be dropped. There is an inherent trade-off when
-	// choosing this parameter: a larger MaxPartitionsContributed leads to less
-	// data loss due to contribution bounding, but since the noise added in
-	// aggregations is scaled according to maxPartitionsContributed, it also
-	// means that more noise is added to each count.
+	// only one aggregation, both epsilon and delta can be left 0; in that case
+	// the entire budget reserved for aggregation in the PrivacySpec is consumed.
+	AggregationEpsilon, AggregationDelta float64
+	// Differential privacy budget consumed by partition selection of this
+	// aggregation.
 	//
-	// Required.
-	MaxPartitionsContributed int64
-	// The maximum number of times that a privacy identifier can contribute to
-	// a single count (or, equivalently, the maximum value that a privacy
-	// identifier can add to a single count in total). If MaxValue=10 and a
-	// privacy identifier is associated with the same value in 15 records, Count
-	// ignores 5 of these records and only adds 10 to the count for this value.
-	// There is an inherent trade-off when choosing MaxValue: a larger
-	// parameter means that fewer records are lost, but a larger noise is added.
+	// If PublicPartitions are specified, this needs to be left unset.
 	//
-	// Required.
-	MaxValue int64
+	// If there is only one aggregation, this can be left unset; in that case
+	// the entire budget reserved for partition selection in the PrivacySpec
+	// is consumed.
+	//
+	// Optional.
+	PartitionSelectionParams PartitionSelectionParams
 	// You can input the list of partitions present in the output if you know
 	// them in advance. When you specify partitions, partition selection /
 	// thresholding will be disabled and partitions will appear in the output
@@ -80,8 +70,40 @@ type CountParams struct {
 	// can fit into memory (e.g., up to a million). Prefer beam.PCollection
 	// otherwise.
 	//
+	// If PartitionSelectionParams are specified, this needs to be left unset.
+	//
 	// Optional.
-	PublicPartitions interface{}
+	PublicPartitions any
+	// The maximum number of distinct values that a given privacy identifier
+	// can influence. If a privacy identifier is associated with more values,
+	// random values will be dropped. There is an inherent trade-off when
+	// choosing this parameter: a larger MaxPartitionsContributed leads to less
+	// data loss due to contribution bounding, but since the noise added in
+	// aggregations is scaled according to maxPartitionsContributed, it also
+	// means that more noise is added to each count.
+	//
+	// Required.
+	MaxPartitionsContributed int64
+	// The maximum number of times that a privacy identifier can contribute to
+	// a single count (or, equivalently, the maximum value that a privacy
+	// identifier can add to a single count in total). If MaxValue=10 and a
+	// privacy identifier is associated with the same value in 15 records, Count
+	// ignores 5 of these records and only adds 10 to the count for this value.
+	// There is an inherent trade-off when choosing MaxValue: a larger
+	// parameter means that fewer records are lost, but a larger noise is added.
+	//
+	// Required.
+	MaxValue int64
+	// Allow negative counts in the output. Most users would expect a count
+	// aggregation to return non-negative values. However, to get better
+	// statistical properties, especially for subsequent post-processing
+	// steps, users can choose to allow negative outputs via this option.
+	//
+	// The default is to clamp the anonymized values and only return
+	// non-negative counts.
+	//
+	// Optional.
+	AllowNegativeOutputs bool
 }
 
 // Count counts the number of times a value appears in a PrivatePCollection,
@@ -104,9 +126,16 @@ func Count(s beam.Scope, pcol PrivatePCollection, params CountParams) beam.PColl
 
 	// Get privacy parameters.
 	spec := pcol.privacySpec
-	epsilon, delta, err := spec.consumeBudget(params.Epsilon, params.Delta)
+	var err error
+	params.AggregationEpsilon, params.AggregationDelta, err = spec.aggregationBudget.consume(params.AggregationEpsilon, params.AggregationDelta)
 	if err != nil {
-		log.Fatalf("Couldn't consume budget for Count: %v", err)
+		log.Fatalf("Couldn't consume aggregation budget for Count: %v", err)
+	}
+	if params.PublicPartitions == nil {
+		params.PartitionSelectionParams.Epsilon, params.PartitionSelectionParams.Delta, err = spec.partitionSelectionBudget.consume(params.PartitionSelectionParams.Epsilon, params.PartitionSelectionParams.Delta)
+		if err != nil {
+			log.Fatalf("Couldn't consume partition selection budget for Count: %v", err)
+		}
 	}
 
 	var noiseKind noise.Kind
@@ -116,14 +145,10 @@ func Count(s beam.Scope, pcol PrivatePCollection, params CountParams) beam.PColl
 	} else {
 		noiseKind = params.NoiseKind.toNoiseKind()
 	}
-	err = checkCountParams(params, epsilon, delta, noiseKind, partitionT.Type())
+
+	err = checkCountParams(params, noiseKind, partitionT.Type())
 	if err != nil {
 		log.Fatalf("pbeam.Count: %v", err)
-	}
-
-	maxPartitionsContributed, err := getMaxPartitionsContributed(spec, params.MaxPartitionsContributed)
-	if err != nil {
-		log.Fatalf("Couldn't get MaxPartitionsContributed for Count: %v", err)
 	}
 
 	// Drop non-public partitions, if public partitions are specified.
@@ -136,11 +161,11 @@ func Count(s beam.Scope, pcol PrivatePCollection, params CountParams) beam.PColl
 	// and re-key by the original privacy key.
 	coded := beam.ParDo(s, kv.NewEncodeFn(idT, partitionT), pcol.col)
 	kvCounts := stats.Count(s, coded)
-	counts64 := beam.ParDo(s, vToInt64Fn, kvCounts)
-	rekeyed := beam.ParDo(s, rekeyInt64Fn, counts64)
+	counts64 := beam.ParDo(s, convertToInt64Fn, kvCounts)
+	rekeyed := beam.ParDo(s, rekeyInt64, counts64)
 	// Second, do cross-partition contribution bounding if not in test mode without contribution bounding.
-	if spec.testMode != noNoiseWithoutContributionBounding {
-		rekeyed = boundContributions(s, rekeyed, maxPartitionsContributed)
+	if spec.testMode != TestModeWithoutContributionBounding {
+		rekeyed = boundContributions(s, rekeyed, params.MaxPartitionsContributed)
 	}
 	// Third, now that contribution bounding is done, remove the privacy keys,
 	// decode the value, and sum all the counts bounded by MaxValue.
@@ -148,63 +173,91 @@ func Count(s beam.Scope, pcol PrivatePCollection, params CountParams) beam.PColl
 	countsKV := beam.ParDo(s,
 		newDecodePairInt64Fn(partitionT.Type()),
 		countPairs,
-		beam.TypeDefinition{Var: beam.XType, T: partitionT.Type()})
+		beam.TypeDefinition{Var: beam.WType, T: partitionT.Type()})
 
 	var result beam.PCollection
 	// Add public partitions and compute the aggregation output, if public partitions are specified.
 	if params.PublicPartitions != nil {
-		result = addPublicPartitionsForCount(s, epsilon, delta, maxPartitionsContributed, params, noiseKind, countsKV, spec.testMode)
+		result = addPublicPartitionsForCount(s, *spec, params, noiseKind, countsKV)
 	} else {
-		boundedSumInt64Fn, err := newBoundedSumInt64Fn(epsilon, delta, maxPartitionsContributed, 0, params.MaxValue, noiseKind, false, spec.testMode)
+		boundedSumFn, err := newBoundedSumInt64Fn(*spec, countToSumParams(params), noiseKind, false)
 		if err != nil {
 			log.Fatalf("Couldn't get boundedSumInt64Fn for Count: %v", err)
 		}
 		sums := beam.CombinePerKey(s,
-			boundedSumInt64Fn,
+			boundedSumFn,
 			countsKV)
 		// Drop thresholded partitions.
-		result = beam.ParDo(s, dropThresholdedPartitionsInt64Fn, sums)
+		result = beam.ParDo(s, dropThresholdedPartitionsInt64, sums)
 	}
 
-	// Clamp negative counts to zero and return.
-	result = beam.ParDo(s, clampNegativePartitionsInt64Fn, result)
+	if !params.AllowNegativeOutputs {
+		// Clamp negative counts to zero.
+		result = beam.ParDo(s, clampNegativePartitionsInt64, result)
+	}
+
 	return result
 }
 
-func checkCountParams(params CountParams, epsilon, delta float64, noiseKind noise.Kind, partitionType reflect.Type) error {
+func checkCountParams(params CountParams, noiseKind noise.Kind, partitionType reflect.Type) error {
 	err := checkPublicPartitions(params.PublicPartitions, partitionType)
 	if err != nil {
 		return err
 	}
-	err = checks.CheckEpsilon(epsilon)
+	err = checkAggregationEpsilon(params.AggregationEpsilon)
 	if err != nil {
 		return err
 	}
-	err = checkDelta(delta, noiseKind, params.PublicPartitions)
+	err = checkAggregationDelta(params.AggregationDelta, noiseKind)
+	if err != nil {
+		return err
+	}
+	err = checkPartitionSelectionEpsilon(params.PartitionSelectionParams.Epsilon, params.PublicPartitions)
+	if err != nil {
+		return err
+	}
+	err = checkPartitionSelectionDelta(params.PartitionSelectionParams.Delta, params.PublicPartitions)
+	if err != nil {
+		return err
+	}
+	err = checkMaxPartitionsContributedPartitionSelection(params.PartitionSelectionParams.MaxPartitionsContributed)
 	if err != nil {
 		return err
 	}
 	if params.MaxValue <= 0 {
 		return fmt.Errorf("MaxValue should be strictly positive, got %d", params.MaxValue)
 	}
-	return nil
+	return checkMaxPartitionsContributed(params.MaxPartitionsContributed)
 }
 
-func addPublicPartitionsForCount(s beam.Scope, epsilon, delta float64, maxPartitionsContributed int64, params CountParams, noiseKind noise.Kind, countsKV beam.PCollection, testMode testMode) beam.PCollection {
+func addPublicPartitionsForCount(s beam.Scope, spec PrivacySpec, params CountParams, noiseKind noise.Kind, countsKV beam.PCollection) beam.PCollection {
 	// Turn PublicPartitions from PCollection<K> into PCollection<K, int64> by adding
 	// the value zero to each K.
 	publicPartitions, isPCollection := params.PublicPartitions.(beam.PCollection)
 	if !isPCollection {
 		publicPartitions = beam.Reshuffle(s, beam.CreateList(s, params.PublicPartitions))
 	}
-	emptyCounts := beam.ParDo(s, addZeroValuesToPublicPartitionsInt64Fn, publicPartitions)
+	emptyCounts := beam.ParDo(s, addZeroValuesToPublicPartitionsInt64, publicPartitions)
 	// Merge countsKV and emptyCounts.
 	allPartitions := beam.Flatten(s, emptyCounts, countsKV)
 	// Sum and add noise.
-	boundedSumInt64Fn, err := newBoundedSumInt64Fn(epsilon, delta, maxPartitionsContributed, 0, params.MaxValue, noiseKind, true, testMode)
+	boundedSumFn, err := newBoundedSumInt64Fn(spec, countToSumParams(params), noiseKind, true)
 	if err != nil {
 		log.Fatalf("Couldn't get boundedSumInt64Fn for Count: %v", err)
 	}
-	sums := beam.CombinePerKey(s, boundedSumInt64Fn, allPartitions)
-	return beam.ParDo(s, dereferenceValueToInt64Fn, sums)
+	sums := beam.CombinePerKey(s, boundedSumFn, allPartitions)
+	return beam.ParDo(s, dereferenceValueInt64, sums)
+}
+
+func countToSumParams(params CountParams) SumParams {
+	return SumParams{
+		AggregationEpsilon:       params.AggregationEpsilon,
+		AggregationDelta:         params.AggregationDelta,
+		PartitionSelectionParams: params.PartitionSelectionParams,
+		MaxPartitionsContributed: params.MaxPartitionsContributed,
+		MinValue:                 0,
+		MaxValue:                 float64(params.MaxValue),
+		NoiseKind:                params.NoiseKind,
+		PublicPartitions:         params.PublicPartitions,
+	}
 }

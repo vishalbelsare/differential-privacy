@@ -17,12 +17,11 @@
 package testutils
 
 import (
+	"math"
 	"testing"
 
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/testing/ptest"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 // Tests for the test helpers.
@@ -76,9 +75,7 @@ func TestApproxEqualsKVInt64(t *testing.T) {
 		p, s, col1, col2 := ptest.CreateList2(tc.values1, tc.values2)
 		col1KV := beam.ParDo(s, PairII64ToKV, col1)
 		col2KV := beam.ParDo(s, PairII64ToKV, col2)
-		if err := ApproxEqualsKVInt64(s, col1KV, col2KV, tolerance); err != nil {
-			t.Fatalf("TestApproxEqualsKVInt64: %v", err)
-		}
+		ApproxEqualsKVInt64(t, s, col1KV, col2KV, tolerance)
 		if err := ptest.Run(p); (err != nil) != tc.wantErr {
 			t.Errorf("TestApproxEqualsKVInt64 failed for %s: got=%v, wantErr=%v", tc.desc, err, tc.wantErr)
 		}
@@ -128,22 +125,12 @@ func TestApproxEqualsKVFloat64(t *testing.T) {
 		},
 	} {
 		p, s, col1, col2 := ptest.CreateList2(tc.values1, tc.values2)
-		col1KV := beam.ParDo(s, PairIFToKV, col1)
-		col2KV := beam.ParDo(s, PairIFToKV, col2)
-		if err := ApproxEqualsKVFloat64(s, col1KV, col2KV, tolerance); err != nil {
-			t.Fatalf("TestApproxEqualsKVFloat64: %v", err)
-		}
+		col1KV := beam.ParDo(s, PairIF64ToKV, col1)
+		col2KV := beam.ParDo(s, PairIF64ToKV, col2)
+		ApproxEqualsKVFloat64(t, s, col1KV, col2KV, tolerance)
 		if err := ptest.Run(p); (err != nil) != tc.wantErr {
 			t.Errorf("TestApproxEqualsKVFloat64 failed for %s: got=%v, wantErr=%v", tc.desc, err, tc.wantErr)
 		}
-	}
-}
-
-func assertFloat64PtrHasApproxValue(t *testing.T, got *float64, wantValue, tolerance float64) {
-	if got == nil {
-		t.Errorf("got <nil>, want: %g", wantValue)
-	} else if diff := cmp.Diff(*got, wantValue, cmpopts.EquateApprox(0, tolerance)); diff != "" {
-		t.Errorf("got %g, want %g", *got, wantValue)
 	}
 }
 
@@ -181,6 +168,75 @@ func TestCheckNumPartitionsFn(t *testing.T) {
 		CheckNumPartitions(s, col, tc.wantPartitions)
 		if err := ptest.Run(p); (err != nil) != tc.wantErr {
 			t.Errorf("With %s, got error=%v, wantErr=%t", tc.desc, err, tc.wantErr)
+		}
+	}
+}
+
+func TestLaplaceToleranceForVariance(t *testing.T) {
+	for _, tc := range []struct {
+		flakinessK                   float64
+		lower                        float64
+		upper                        float64
+		maxContributionsPerPartition int64
+		maxPartitionsContributed     int64
+		epsilon                      float64
+		stats                        VarianceStatistics
+		wantTolerance                VarianceStatistics
+		within                       VarianceStatistics
+	}{
+		{
+			lower: 10., upper: 20.,
+			maxContributionsPerPartition: 2,
+			maxPartitionsContributed:     2,
+			epsilon:                      20.,
+			stats: VarianceStatistics{
+				NormalizedSumOfSquares: 2000.,
+				NormalizedSum:          -300.,
+				Count:                  100.,
+				Mean:                   -300./100. + (10.+20.)/2,
+				Variance:               2000./100. - (-300. / 100. * -300. / 100.),
+			},
+			wantTolerance: VarianceStatistics{
+				Mean:     2.,
+				Variance: 14.,
+			},
+		},
+		{
+			lower: 10., upper: 30.,
+			maxContributionsPerPartition: 2,
+			maxPartitionsContributed:     2,
+			epsilon:                      30.,
+			stats: VarianceStatistics{
+				NormalizedSumOfSquares: 5000.,
+				NormalizedSum:          -300.,
+				Count:                  100.,
+				Mean:                   -300./100. + (10.+30.)/2,
+				Variance:               5000./100. - (-300. / 100. * -300. / 100.),
+			},
+			wantTolerance: VarianceStatistics{
+				Mean:     3.6183,
+				Variance: 50.35,
+			},
+			within: VarianceStatistics{
+				Mean:     1e-4,
+				Variance: 0.01,
+			},
+		},
+	} {
+		got, err := LaplaceToleranceForVariance(
+			23, tc.lower, tc.upper, tc.maxContributionsPerPartition,
+			tc.maxPartitionsContributed, tc.epsilon, tc.stats,
+		)
+		if err != nil {
+			t.Fatalf("ToleranceForVariance(%v): got error %v", tc, err)
+		}
+		if math.Abs(got.Mean-tc.wantTolerance.Mean) > tc.within.Mean {
+			t.Errorf("wrong tolerance for mean, got %f, want %f",
+				got.Mean, tc.wantTolerance.Mean)
+		}
+		if math.Abs(got.Variance-tc.wantTolerance.Variance) > tc.within.Variance {
+			t.Errorf("wrong tolerance for variance, got %f, want %f",
+				got.Variance, tc.wantTolerance.Variance)
 		}
 	}
 }

@@ -35,6 +35,9 @@ func init() {
 	beam.RegisterCoder(reflect.TypeOf(expandValuesAccum{}), encodeExpandValuesAccum, decodeExpandValuesAccum)
 	beam.RegisterCoder(reflect.TypeOf(expandFloat64ValuesAccum{}), encodeExpandFloat64ValuesAccum, decodeExpandFloat64ValuesAccum)
 	beam.RegisterCoder(reflect.TypeOf(partitionSelectionAccum{}), encodePartitionSelectionAccum, decodePartitionSelectionAccum)
+	beam.RegisterCoder(reflect.TypeOf(boundedVarianceAccum{}), encodeBoundedVarianceAccum, decodeBoundedVarianceAccum)
+	beam.RegisterCoder(reflect.TypeOf((*VarianceStatistics)(nil)),
+		encodeVarianceStatisticsPtr, decodeVarianceStatisticsPtr)
 }
 
 func encodeCountAccum(ca countAccum) ([]byte, error) {
@@ -117,13 +120,39 @@ func decodePartitionSelectionAccum(data []byte) (partitionSelectionAccum, error)
 	return ret, err
 }
 
-func encode(v interface{}) ([]byte, error) {
+func encodeBoundedVarianceAccum(v boundedVarianceAccum) ([]byte, error) {
+	return encode(v)
+}
+
+func decodeBoundedVarianceAccum(data []byte) (boundedVarianceAccum, error) {
+	var ret boundedVarianceAccum
+	err := decode(&ret, data)
+	return ret, err
+}
+
+func encodeVarianceStatisticsPtr(v *VarianceStatistics) ([]byte, error) {
+	if v == nil {
+		return nil, nil
+	}
+	return encode(v)
+}
+
+func decodeVarianceStatisticsPtr(data []byte) (*VarianceStatistics, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var ret *VarianceStatistics
+	err := decode(&ret, data)
+	return ret, err
+}
+
+func encode(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := gob.NewEncoder(&buf)
 	err := enc.Encode(v)
 	return buf.Bytes(), err
 }
 
-func decode(v interface{}, data []byte) error {
+func decode(v any, data []byte) error {
 	return gob.NewDecoder(bytes.NewReader(data)).Decode(v)
 }

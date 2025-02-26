@@ -19,8 +19,8 @@ package pbeam
 import (
 	"testing"
 
-	"github.com/google/differential-privacy/go/v2/dpagg"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/pbeam/testutils"
+	"github.com/google/differential-privacy/go/v3/dpagg"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/pbeam/testutils"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/testing/ptest"
 )
@@ -56,8 +56,12 @@ func TestSelectPartitionsIsNonDeterministicV(t *testing.T) {
 			col = beam.ParDo(s, testutils.PairToKV, col)
 
 			// Run SelectPartitions on pairs
-			pcol := MakePrivate(s, col, NewPrivacySpec(tc.epsilon, tc.delta))
-			got := SelectPartitions(s, pcol, SelectPartitionsParams{MaxPartitionsContributed: 1})
+			pcol := MakePrivate(s, col, privacySpec(t,
+				PrivacySpecParams{
+					PartitionSelectionEpsilon: tc.epsilon,
+					PartitionSelectionDelta:   tc.delta,
+				}))
+			got := SelectPartitions(s, pcol, PartitionSelectionParams{MaxPartitionsContributed: 1})
 
 			// Validate that partitions are selected randomly (i.e., some emitted and some dropped).
 			testutils.CheckSomePartitionsAreDropped(s, got, tc.numPartitions)
@@ -106,9 +110,13 @@ func TestSelectPartitionsIsNonDeterministicKV(t *testing.T) {
 			col = beam.ParDo(s, testutils.ExtractIDFromTripleWithIntValue, col)
 
 			// Run SelectPartitions on triples
-			pcol := MakePrivate(s, col, NewPrivacySpec(tc.epsilon, tc.delta))
+			pcol := MakePrivate(s, col, privacySpec(t,
+				PrivacySpecParams{
+					PartitionSelectionEpsilon: tc.epsilon,
+					PartitionSelectionDelta:   tc.delta,
+				}))
 			pcol = ParDo(s, testutils.TripleWithIntValueToKV, pcol)
-			got := SelectPartitions(s, pcol, SelectPartitionsParams{MaxPartitionsContributed: 1})
+			got := SelectPartitions(s, pcol, PartitionSelectionParams{MaxPartitionsContributed: 1})
 
 			// Validate that partitions are selected randomly (i.e., some emitted and some dropped).
 			testutils.CheckSomePartitionsAreDropped(s, got, tc.numPartitions)
@@ -132,8 +140,12 @@ func TestSelectPartitionsBoundsCrossPartitionContributionsV(t *testing.T) {
 
 	// ε=50, δ=~1 and l0Sensitivity=1 gives a threshold of 2.
 	epsilon, delta, l0Sensitivity := 50.0, dpagg.LargestRepresentableDelta, 1
-	pcol := MakePrivate(s, col, NewPrivacySpec(epsilon, delta))
-	got := SelectPartitions(s, pcol, SelectPartitionsParams{MaxPartitionsContributed: int64(l0Sensitivity)})
+	pcol := MakePrivate(s, col, privacySpec(t,
+		PrivacySpecParams{
+			PartitionSelectionEpsilon: epsilon,
+			PartitionSelectionDelta:   delta,
+		}))
+	got := SelectPartitions(s, pcol, PartitionSelectionParams{MaxPartitionsContributed: int64(l0Sensitivity)})
 	// With a max contribution of 1, only 1 partition should be outputted.
 	testutils.CheckNumPartitions(s, got, 1)
 	if err := ptest.Run(p); err != nil {
@@ -154,12 +166,42 @@ func TestSelectPartitionsBoundsCrossPartitionContributionsKV(t *testing.T) {
 
 	// ε=50, δ=~1 and l0Sensitivity=1 gives a threshold of 2.
 	epsilon, delta, l0Sensitivity := 50.0, dpagg.LargestRepresentableDelta, 1
-	pcol := MakePrivate(s, col, NewPrivacySpec(epsilon, delta))
+	pcol := MakePrivate(s, col, privacySpec(t,
+		PrivacySpecParams{
+			PartitionSelectionEpsilon: epsilon,
+			PartitionSelectionDelta:   delta,
+		}))
 	pcol = ParDo(s, testutils.TripleWithIntValueToKV, pcol)
-	got := SelectPartitions(s, pcol, SelectPartitionsParams{MaxPartitionsContributed: int64(l0Sensitivity)})
+	got := SelectPartitions(s, pcol, PartitionSelectionParams{MaxPartitionsContributed: int64(l0Sensitivity)})
 	// With a max contribution of 1, only 1 partition should be outputted.
 	testutils.CheckNumPartitions(s, got, 1)
 	if err := ptest.Run(p); err != nil {
 		t.Errorf("Did not bound cross partition contributions correctly for PrivatePCollection<K,V> inputs: %v", err)
+	}
+}
+
+func TestSelectPartitionsPrethresholding(t *testing.T) {
+	// Create two partitions, one with 4 users and the other with 5 users.
+	triples := testutils.MakeTripleWithIntValue(4, 0, 0)
+	triples = append(triples, testutils.MakeTripleWithIntValueStartingFromKey(4, 5, 1, 0)...)
+	p, s, col := ptest.CreateList(triples)
+	col = beam.ParDo(s, testutils.ExtractIDFromTripleWithIntValue, col)
+
+	// We set very large epsilon & delta, and a pre-threshold of 5, so the partition
+	// with 5 users should be kept and the one with 4 users should not be kept.
+	epsilon, delta, preThreshold, l0Sensitivity := 1e9, dpagg.LargestRepresentableDelta, int64(5), int64(1)
+	pcol := MakePrivate(s, col, privacySpec(t,
+		PrivacySpecParams{
+			PartitionSelectionEpsilon: epsilon,
+			PartitionSelectionDelta:   delta,
+			PreThreshold:              preThreshold,
+		}))
+	pcol = ParDo(s, testutils.TripleWithIntValueToKV, pcol)
+	got := SelectPartitions(s, pcol, PartitionSelectionParams{MaxPartitionsContributed: l0Sensitivity})
+
+	// Assert
+	testutils.CheckNumPartitions(s, got, 1)
+	if err := ptest.Run(p); err != nil {
+		t.Errorf("Expected only a single partition to be kept with pre-thresholding:  %v", err)
 	}
 }

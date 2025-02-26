@@ -24,7 +24,6 @@ import com.google.privacy.differentialprivacy.proto.SummaryOuterClass.CountSumma
 import com.google.privacy.differentialprivacy.proto.SummaryOuterClass.MechanismType;
 import com.google.protobuf.InvalidProtocolBufferException;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 /**
  * Calculates a differentially private count for a collection of values using the Laplace or
@@ -82,17 +81,16 @@ public class Count {
    * Increments count by the given value. Note, that this shouldn't be used to count multiple
    * contributions to a partition from the same user.
    *
+   * <p>Note that decrementing counts by inputting a negative value is allowed, for example if you
+   * want to remove some users you have previously added.
+   *
    * @throws IllegalStateException if this instance of {@link Count} has already been queried or
    *     serialized.
    */
   public void incrementBy(long count) {
     Preconditions.checkState(
         state.equals(AggregationState.DEFAULT), "Count cannot be incremented.");
-
-    // Non-positive values are ignored because they don't make sense.
-    if (count > 0) {
-      this.rawCount += count;
-    }
+    this.rawCount += count;
   }
 
   /**
@@ -247,7 +245,7 @@ public class Count {
    * Count}.
    *
    * <p>This method cannot be invoked if the count has already been queried, i.e., {@link
-   * computeResult()} has been called. Moreover, after this instance of {@link Count} has been
+   * #computeResult()} has been called. Moreover, after this instance of {@link Count} has been
    * serialized once, further modification and queries are not possible anymore.
    *
    * @throws IllegalStateException if this instance of {@link Count} has already been queried.
@@ -258,18 +256,15 @@ public class Count {
 
     state = AggregationState.SERIALIZED;
 
-    CountSummary.Builder builder =
-        CountSummary.newBuilder()
-            .setCount(rawCount)
-            .setEpsilon(params.epsilon())
-            .setMaxPartitionsContributed(params.maxPartitionsContributed())
-            .setMaxContributionsPerPartition(params.maxContributionsPerPartition())
-            .setMechanismType(params.noise().getMechanismType());
-    if (params.delta() != null) {
-      builder.setDelta(params.delta());
-    }
-
-    return builder.build().toByteArray();
+    return CountSummary.newBuilder()
+        .setCount(rawCount)
+        .setEpsilon(params.epsilon())
+        .setDelta(params.delta())
+        .setMaxPartitionsContributed(params.maxPartitionsContributed())
+        .setMaxContributionsPerPartition(params.maxContributionsPerPartition())
+        .setMechanismType(params.noise().getMechanismType())
+        .build()
+        .toByteArray();
   }
 
   /**
@@ -312,8 +307,7 @@ public class Count {
 
     abstract double epsilon();
 
-    @Nullable
-    abstract Double delta();
+    abstract double delta();
 
     abstract int maxPartitionsContributed();
 
@@ -324,11 +318,12 @@ public class Count {
       private static Builder newBuilder() {
         Builder builder = new AutoValue_Count_Params.Builder();
         // Provide LaplaceNoise as a default noise generator.
-        builder.noise(new LaplaceNoise());
-        // By default, assume that each user contributes to a given partition no more than once.
-        builder.maxContributionsPerPartition(1);
-
-        return builder;
+        return builder
+            .noise(new LaplaceNoise())
+            // Laplace noise doesn't use delta. Hence, set it to 0.
+            .delta(0.0)
+            // By default, assume that each user contributes to a given partition no more than once.
+            .maxContributionsPerPartition(1);
       }
 
       /** Epsilon DP parameter. */
@@ -340,7 +335,17 @@ public class Count {
        * <p>Note that Laplace noise does not use delta. Hence, delta should not be set when Laplace
        * noise is used.
        */
-      public abstract Builder delta(@Nullable Double value);
+      public abstract Builder delta(double value);
+
+      /**
+       * @deprecated use {@link #delta(double)}.
+       *     <p>TODO: migrate clients and delete this method.
+       */
+      @Deprecated
+      public Builder delta(Double value) {
+        double primitiveDelta = value == null ? 0.0 : value;
+        return delta(primitiveDelta);
+      }
 
       /**
        * Maximum number of partitions to which a single privacy unit (i.e., an individual) is

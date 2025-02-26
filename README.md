@@ -1,11 +1,20 @@
 # Differential Privacy
 
+> **Note**<br>
+> If you are unfamiliar with differential privacy (DP), you might want to go through ["A friendly, non-technical introduction to differential privacy"](https://desfontain.es/privacy/friendly-intro-to-differential-privacy.html).
+
 This repository contains libraries to generate ε- and (ε, δ)-differentially
 private statistics over datasets. It contains the following tools.
 
 * [Privacy on Beam](privacy-on-beam) is an end-to-end differential privacy
   framework built on top of [Apache Beam](https://beam.apache.org/documentation/).
   It is intended to be easy to use, even by non-experts.
+* [PipelineDP4j](pipelinedp4j) is an end-to-end differential privacy framework
+  for JVM languages (Java, Kotlin, Scala). It supports different data
+  processing frameworks such as
+  [Apache Beam](https://beam.apache.org/documentation/) and
+  [Apache Spark](https://spark.apache.org/) (coming soon). It is intended to
+  be easy to use, even by non-experts.
 * Three "DP building block" libraries, in [C++](cc), [Go](go), and [Java](java).
   These libraries implement basic noise addition primitives and differentially
   private aggregations. Privacy on Beam is implemented using these libraries.
@@ -15,8 +24,10 @@ private statistics over datasets. It contains the following tools.
   tracking privacy budget.
 * A [command line interface](examples/zetasql) for running differentially
   private SQL queries with [ZetaSQL](https://github.com/google/zetasql).
+* [DP Auditorium](python/dp_auditorium) is a library for auditing differential
+  privacy guarantees.
 
-To get started on generating differentially private data, we recomend you follow
+To get started on generating differentially private data, we recommend you follow
 the [Privacy on Beam codelab](https://codelabs.developers.google.com/codelabs/privacy-on-beam/).
 
 Currently, the DP building block libraries support the following algorithms:
@@ -35,9 +46,10 @@ Currently, the DP building block libraries support the following algorithms:
 | Truncated geometric thresholding | Supported | Supported | Supported |
 | Laplace thresholding             | Supported | Supported | Supported |
 | Gaussian thresholding            | Planned   | Supported | Supported |
+| Pre-thresholding                 | Supported | Supported | Supported |
 
 Implementations of the Laplace mechanism and the Gaussian mechanism use [secure
-noise generation].  These mechanisms can be used to perform computations that
+noise generation]. These mechanisms can be used to perform computations that
 aren't covered by the algorithms implemented in our libraries.
 
 [secure noise generation]: ./common_docs/Secure_Noise_Generation.pdf
@@ -48,14 +60,15 @@ experimental and subject to change.
 
 ## How to Build
 
-In order to run the differential privacy library, you need to install Bazel in
-version 5.0.0, if you don't have it already.
-[Follow the instructions for your platform on the Bazel website](https://docs.bazel.build/versions/main/install.html)
+In order to run the differential privacy library, you need to install bazelisk,
+if you don't have it already. Bazelisk manages [Bazel](https://bazel.build/)
+versions and installs correct one.
+[Follow the instructions for your platform on the bazelisk github page](https://github.com/bazelbuild/bazelisk?tab=readme-ov-file#installation)
 
 You also need to install Git, if you don't have it already.
 [Follow the instructions for your platform on the Git website.](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git)
 
-Once you've installed Bazel and Git, open a Terminal and clone the
+Once you've installed bazelisk and Git, open a Terminal and clone the
 differential privacy directory into a local folder:
 
 ```shell
@@ -63,30 +76,36 @@ git clone https://github.com/google/differential-privacy.git
 ```
 
 Navigate into the `differential-privacy` folder you just created,
-and build the differential privacy library and dependencies using Bazel
+and build the differential privacy library and dependencies using bazelisk
 (note: *...* is a part of the command and not a placeholder):
 
 To build the C++ library, run:
 ```shell
 cd cc
-bazel build ...
+bazelisk build ...
 ```
 To build the Go library, run:
 ```shell
 cd go
-bazel build ...
+bazelisk build ...
 ```
 
 To build the Java library, run:
 ```shell
 cd java
-bazel build ...
+bazelisk build ...
+```
+
+To build the PipelineDP4j library, run:
+```shell
+cd pipelinedp4j
+bazelisk build ...
 ```
 
 To build Privacy on Beam, run:
 ```shell
 cd privacy-on-beam
-bazel build ...
+bazelisk build ...
 ```
 
 You may need to install additional dependencies when building the PostgreSQL
@@ -137,6 +156,9 @@ the contents of a dataset and/or its order. Our integer implementations are not
 subject to the vulnerabilities described in the paper (though note that Java
 does not have an integer implementation).
 
+Please refer to our [attack model](common_docs/attack_model.md) to learn more
+about how to use our libraries in a safe way.
+
 ## Support
 
 We will continue to publish updates and improvements to the library. We are
@@ -156,7 +178,7 @@ This is not an officially supported Google product.
 ## Reach out
 
 We are always keen on learning about how you use this library and what use cases
-it helps you to solve.  We have two communication channels:
+it helps you to solve. We have two communication channels:
 
   * A [public discussion
     group](https://groups.google.com/g/dp-open-source-users) where we will also

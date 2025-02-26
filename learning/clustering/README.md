@@ -47,10 +47,14 @@ each leaf of the tree:
 *   `coreset_weight`: differentially private count of `nonprivate_points` of the
     leaf
 
-The budget split of the privacy parameter `epsilon` used for each part of the
-calculation can be controlled by passing in a custom
-`clustering_params.PrivacyBudgetSplit`. Note that the private count is also used
-in generating the tree itself.
+The distribution of noise added during different operations in the clustering
+algorithm can be controlled by passing in a custom
+`clustering_params.PrivacyCalculatorMultiplier`. This is used by the algorithm's
+[mechanism calibration](https://github.com/google/differential-privacy/blob/main/python/dp_accounting/mechanism_calibration.py).
+See `clustering_params.PrivacyCalculatorMultiplier` for details.
+
+> **Note:** `clustering_params.PrivacyBudgetSplit` is deprecated. Use
+`clustering_params.PrivacyCalculatorMultiplier` instead.
 
 ## Usage
 
@@ -140,7 +144,7 @@ python setup.py install
 python clustering/demo/clustering_demo.py
 ```
 
-We test this library on Linux with Python version 3.7. If you experience any
+We test this library on Linux with Python version 3.9. If you experience any
 problems, please file an issue on GitHub, also for other platforms or Python
 versions.
 
@@ -165,6 +169,9 @@ The following options are available:
 
 *   `epsilon_to_try`: list of `epsilon` values to use when experimenting with
     varying `epsilon`.
+
+*   `use_mechanism_calibration`: whether to use the experimental mechanism
+    calibration for noise parameters.
 
 ## Benchmark Comparisons
 

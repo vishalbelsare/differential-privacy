@@ -21,52 +21,70 @@ import (
 	"context"
 	"reflect"
 
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/kv"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/kv"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/core/util/reflectx"
+	"github.com/apache/beam/sdks/v2/go/pkg/beam/register"
 )
 
 func init() {
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x1)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x1)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x1Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x1Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x2)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x2)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x2Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x2Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x1)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x1)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x1Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x1Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x2)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x2)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x2Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x2Err)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x1Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x1Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x1ErrEmit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x1ErrEmit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x2Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x2Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn1x2ErrEmit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx1x2ErrEmit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x1Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x1Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x1ErrEmit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x1ErrEmit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x2Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x2Emit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFn2x2ErrEmit)(nil)))
-	beam.RegisterType(reflect.TypeOf((*TransformFnCtx2x2ErrEmit)(nil)))
+	register.DoFn2x2[beam.W, beam.X, beam.W, beam.Y](&TransformFn1x1{})
+	register.DoFn3x2[context.Context, beam.W, beam.X, beam.W, beam.Y](&TransformFnCtx1x1{})
+	register.DoFn2x3[beam.W, beam.X, beam.W, beam.Y, error](&TransformFn1x1Err{})
+	register.DoFn3x3[context.Context, beam.W, beam.X, beam.W, beam.Y, error](&TransformFnCtx1x1Err{})
+	register.DoFn2x3[beam.W, beam.X, beam.W, kv.Pair, error](&TransformFn1x2{})
+	register.DoFn3x3[context.Context, beam.W, beam.X, beam.W, kv.Pair, error](&TransformFnCtx1x2{})
+	register.DoFn2x3[beam.W, beam.X, beam.W, kv.Pair, error](&TransformFn1x2Err{})
+	register.DoFn3x3[context.Context, beam.W, beam.X, beam.W, kv.Pair, error](&TransformFnCtx1x2Err{})
+	register.DoFn2x3[beam.W, kv.Pair, beam.W, beam.Y, error](&TransformFn2x1{})
+	register.DoFn3x3[context.Context, beam.W, kv.Pair, beam.W, beam.Y, error](&TransformFnCtx2x1{})
+	register.DoFn2x3[beam.W, kv.Pair, beam.W, beam.Y, error](&TransformFn2x1Err{})
+	register.DoFn3x3[context.Context, beam.W, kv.Pair, beam.W, beam.Y, error](&TransformFnCtx2x1Err{})
+	register.DoFn2x3[beam.W, kv.Pair, beam.W, kv.Pair, error](&TransformFn2x2{})
+	register.DoFn3x3[context.Context, beam.W, kv.Pair, beam.W, kv.Pair, error](&TransformFnCtx2x2{})
+	register.DoFn2x3[beam.W, kv.Pair, beam.W, kv.Pair, error](&TransformFn2x2Err{})
+	register.DoFn3x3[context.Context, beam.W, kv.Pair, beam.W, kv.Pair, error](&TransformFnCtx2x2Err{})
+	register.DoFn3x0[beam.W, beam.X, func(beam.W, beam.Y)](&TransformFn1x1Emit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn4x0[context.Context, beam.W, beam.X, func(beam.W, beam.Y)](&TransformFnCtx1x1Emit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn3x1[beam.W, beam.X, func(beam.W, beam.Y), error](&TransformFn1x1ErrEmit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn4x1[context.Context, beam.W, beam.X, func(beam.W, beam.Y), error](&TransformFnCtx1x1ErrEmit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn3x1[beam.W, beam.X, func(beam.W, kv.Pair), error](&TransformFn1x2Emit{})
+	register.Emitter2[beam.W, kv.Pair]()
+	register.DoFn4x1[context.Context, beam.W, beam.X, func(beam.W, kv.Pair), error](&TransformFnCtx1x2Emit{})
+	register.Emitter2[beam.W, kv.Pair]()
+	register.DoFn3x1[beam.W, beam.X, func(beam.W, kv.Pair), error](&TransformFn1x2ErrEmit{})
+	register.Emitter2[beam.W, kv.Pair]()
+	register.DoFn4x1[context.Context, beam.W, beam.X, func(beam.W, kv.Pair), error](&TransformFnCtx1x2ErrEmit{})
+	register.Emitter2[beam.W, kv.Pair]()
+	register.DoFn3x1[beam.W, kv.Pair, func(beam.W, beam.Y), error](&TransformFn2x1Emit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn4x1[context.Context, beam.W, kv.Pair, func(beam.W, beam.Y), error](&TransformFnCtx2x1Emit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn3x1[beam.W, kv.Pair, func(beam.W, beam.Y), error](&TransformFn2x1ErrEmit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn4x1[context.Context, beam.W, kv.Pair, func(beam.W, beam.Y), error](&TransformFnCtx2x1ErrEmit{})
+	register.Emitter2[beam.W, beam.Y]()
+	register.DoFn3x1[beam.W, kv.Pair, func(beam.W, kv.Pair), error](&TransformFn2x2Emit{})
+	register.Emitter2[beam.W, kv.Pair]()
+	register.DoFn4x1[context.Context, beam.W, kv.Pair, func(beam.W, kv.Pair), error](&TransformFnCtx2x2Emit{})
+	register.Emitter2[beam.W, kv.Pair]()
+	register.DoFn3x1[beam.W, kv.Pair, func(beam.W, kv.Pair), error](&TransformFn2x2ErrEmit{})
+	register.Emitter2[beam.W, kv.Pair]()
+	register.DoFn4x1[context.Context, beam.W, kv.Pair, func(beam.W, kv.Pair), error](&TransformFnCtx2x2ErrEmit{})
+	register.Emitter2[beam.W, kv.Pair]()
 }
 
 // TransformFn1x1 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFn1x1 struct {
 	Transform beam.EncodedFunc
 	tfn       reflectx.Func1x1
@@ -84,11 +102,12 @@ func (fn *TransformFn1x1) ProcessElement(id beam.W, v beam.X) (beam.W, beam.Y) {
 }
 
 // TransformFnCtx1x1 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFnCtx1x1 struct {
 	Transform beam.EncodedFunc
 	tfn       reflectx.Func2x1
@@ -106,11 +125,12 @@ func (fn *TransformFnCtx1x1) ProcessElement(ctx context.Context, id beam.W, v be
 }
 
 // TransformFn1x1Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFn1x1Err struct {
 	Transform beam.EncodedFunc
 	tfn       reflectx.Func1x2
@@ -133,11 +153,12 @@ func (fn *TransformFn1x1Err) ProcessElement(id beam.W, v beam.X) (beam.W, beam.Y
 }
 
 // TransformFnCtx1x1Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFnCtx1x1Err struct {
 	Transform beam.EncodedFunc
 	tfn       reflectx.Func2x2
@@ -160,11 +181,12 @@ func (fn *TransformFnCtx1x1Err) ProcessElement(ctx context.Context, id beam.W, v
 }
 
 // TransformFn1x2 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFn1x2 struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func1x2
@@ -178,22 +200,23 @@ func (fn *TransformFn1x2) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn1x2) ProcessElement(id beam.W, v beam.X) (beam.W, beam.Z, error) {
+func (fn *TransformFn1x2) ProcessElement(id beam.W, v beam.X) (beam.W, kv.Pair, error) {
 	outputK, outputV := fn.tfn.Call1x2(v)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	return id, out, nil
 }
 
 // TransformFnCtx1x2 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFnCtx1x2 struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func2x2
@@ -207,22 +230,23 @@ func (fn *TransformFnCtx1x2) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx1x2) ProcessElement(ctx context.Context, id beam.W, v beam.X) (beam.W, beam.Z, error) {
+func (fn *TransformFnCtx1x2) ProcessElement(ctx context.Context, id beam.W, v beam.X) (beam.W, kv.Pair, error) {
 	outputK, outputV := fn.tfn.Call2x2(ctx, v)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	return id, out, nil
 }
 
 // TransformFn1x2Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFn1x2Err struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func1x3
@@ -236,11 +260,11 @@ func (fn *TransformFn1x2Err) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn1x2Err) ProcessElement(id beam.W, v beam.X) (beam.W, beam.Z, error) {
+func (fn *TransformFn1x2Err) ProcessElement(id beam.W, v beam.X) (beam.W, kv.Pair, error) {
 	outputK, outputV, err := fn.tfn.Call1x3(v)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	var errOut error
@@ -252,11 +276,12 @@ func (fn *TransformFn1x2Err) ProcessElement(id beam.W, v beam.X) (beam.W, beam.Z
 }
 
 // TransformFnCtx1x2Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFnCtx1x2Err struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func2x3
@@ -270,11 +295,11 @@ func (fn *TransformFnCtx1x2Err) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx1x2Err) ProcessElement(ctx context.Context, id beam.W, v beam.X) (beam.W, beam.Z, error) {
+func (fn *TransformFnCtx1x2Err) ProcessElement(ctx context.Context, id beam.W, v beam.X) (beam.W, kv.Pair, error) {
 	outputK, outputV, err := fn.tfn.Call2x3(ctx, v)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	var errOut error
@@ -286,11 +311,12 @@ func (fn *TransformFnCtx1x2Err) ProcessElement(ctx context.Context, id beam.W, v
 }
 
 // TransformFn2x1 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFn2x1 struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func2x1
@@ -304,8 +330,7 @@ func (fn *TransformFn2x1) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x1) ProcessElement(id beam.W, kvp beam.Z) (beam.W, beam.Y, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x1) ProcessElement(id beam.W, inputKV kv.Pair) (beam.W, beam.Y, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return nil, nil, decodeErr
@@ -316,11 +341,12 @@ func (fn *TransformFn2x1) ProcessElement(id beam.W, kvp beam.Z) (beam.W, beam.Y,
 }
 
 // TransformFnCtx2x1 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFnCtx2x1 struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func3x1
@@ -334,8 +360,7 @@ func (fn *TransformFnCtx2x1) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x1) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z) (beam.W, beam.Y, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x1) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair) (beam.W, beam.Y, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return nil, nil, decodeErr
@@ -346,11 +371,12 @@ func (fn *TransformFnCtx2x1) ProcessElement(ctx context.Context, id beam.W, kvp 
 }
 
 // TransformFn2x1Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFn2x1Err struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func2x2
@@ -364,8 +390,7 @@ func (fn *TransformFn2x1Err) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x1Err) ProcessElement(id beam.W, kvp beam.Z) (beam.W, beam.Y, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x1Err) ProcessElement(id beam.W, inputKV kv.Pair) (beam.W, beam.Y, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return nil, nil, decodeErr
@@ -381,11 +406,12 @@ func (fn *TransformFn2x1Err) ProcessElement(id beam.W, kvp beam.Z) (beam.W, beam
 }
 
 // TransformFnCtx2x1Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFnCtx2x1Err struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func3x2
@@ -399,8 +425,7 @@ func (fn *TransformFnCtx2x1Err) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x1Err) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z) (beam.W, beam.Y, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x1Err) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair) (beam.W, beam.Y, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return nil, nil, decodeErr
@@ -416,11 +441,12 @@ func (fn *TransformFnCtx2x1Err) ProcessElement(ctx context.Context, id beam.W, k
 }
 
 // TransformFn2x2 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFn2x2 struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func2x2
@@ -436,28 +462,28 @@ func (fn *TransformFn2x2) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x2) ProcessElement(id beam.W, kvp beam.Z) (beam.W, beam.Z, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x2) ProcessElement(id beam.W, inputKV kv.Pair) (beam.W, kv.Pair, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
-		return nil, nil, decodeErr
+		return nil, kv.Pair{}, decodeErr
 	}
 
 	outputK, outputV := fn.tfn.Call2x2(inputK, inputV)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	return id, out, nil
 }
 
 // TransformFnCtx2x2 is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: false
 type TransformFnCtx2x2 struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func3x2
@@ -473,28 +499,28 @@ func (fn *TransformFnCtx2x2) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x2) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z) (beam.W, beam.Z, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x2) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair) (beam.W, kv.Pair, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
-		return nil, nil, decodeErr
+		return nil, kv.Pair{}, decodeErr
 	}
 
 	outputK, outputV := fn.tfn.Call3x2(ctx, inputK, inputV)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	return id, out, nil
 }
 
 // TransformFn2x2Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFn2x2Err struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func2x3
@@ -510,17 +536,16 @@ func (fn *TransformFn2x2Err) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x2Err) ProcessElement(id beam.W, kvp beam.Z) (beam.W, beam.Z, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x2Err) ProcessElement(id beam.W, inputKV kv.Pair) (beam.W, kv.Pair, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
-		return nil, nil, decodeErr
+		return nil, kv.Pair{}, decodeErr
 	}
 
 	outputK, outputV, err := fn.tfn.Call2x3(inputK, inputV)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	var errOut error
@@ -532,11 +557,12 @@ func (fn *TransformFn2x2Err) ProcessElement(id beam.W, kvp beam.Z) (beam.W, beam
 }
 
 // TransformFnCtx2x2Err is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: false
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: false
+//	HasErrOutput: true
 type TransformFnCtx2x2Err struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func3x3
@@ -552,17 +578,16 @@ func (fn *TransformFnCtx2x2Err) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x2Err) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z) (beam.W, beam.Z, error) {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x2Err) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair) (beam.W, kv.Pair, error) {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
-		return nil, nil, decodeErr
+		return nil, kv.Pair{}, decodeErr
 	}
 
 	outputK, outputV, err := fn.tfn.Call3x3(ctx, inputK, inputV)
 	out, encodeErr := fn.OutputCodec.Encode(outputK, outputV)
 	if encodeErr != nil {
-		return nil, nil, encodeErr
+		return nil, kv.Pair{}, encodeErr
 	}
 
 	var errOut error
@@ -574,11 +599,12 @@ func (fn *TransformFnCtx2x2Err) ProcessElement(ctx context.Context, id beam.W, k
 }
 
 // TransformFn1x1Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFn1x1Emit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func2x0
@@ -601,11 +627,12 @@ func (fn *TransformFn1x1Emit) ProcessElement(id beam.W, v beam.X, emit func(beam
 }
 
 // TransformFnCtx1x1Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFnCtx1x1Emit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func3x0
@@ -628,11 +655,12 @@ func (fn *TransformFnCtx1x1Emit) ProcessElement(ctx context.Context, id beam.W, 
 }
 
 // TransformFn1x1ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFn1x1ErrEmit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func2x1
@@ -660,11 +688,12 @@ func (fn *TransformFn1x1ErrEmit) ProcessElement(id beam.W, v beam.X, emit func(b
 }
 
 // TransformFnCtx1x1ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFnCtx1x1ErrEmit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func3x1
@@ -692,11 +721,12 @@ func (fn *TransformFnCtx1x1ErrEmit) ProcessElement(ctx context.Context, id beam.
 }
 
 // TransformFn1x2Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFn1x2Emit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func2x0
@@ -711,14 +741,14 @@ func (fn *TransformFn1x2Emit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn1x2Emit) ProcessElement(id beam.W, v beam.X, emit func(beam.W, beam.Z)) error {
+func (fn *TransformFn1x2Emit) ProcessElement(id beam.W, v beam.X, emit func(beam.W, kv.Pair)) error {
 	var emitErr error
 	internalEmit := func(y []reflect.Value) []reflect.Value {
 		outputKV, encodeErr := fn.OutputCodec.Encode(y[0].Interface(), y[1].Interface())
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)
@@ -730,11 +760,12 @@ func (fn *TransformFn1x2Emit) ProcessElement(id beam.W, v beam.X, emit func(beam
 }
 
 // TransformFnCtx1x2Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFnCtx1x2Emit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func3x0
@@ -749,14 +780,14 @@ func (fn *TransformFnCtx1x2Emit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx1x2Emit) ProcessElement(ctx context.Context, id beam.W, v beam.X, emit func(beam.W, beam.Z)) error {
+func (fn *TransformFnCtx1x2Emit) ProcessElement(ctx context.Context, id beam.W, v beam.X, emit func(beam.W, kv.Pair)) error {
 	var emitErr error
 	internalEmit := func(y []reflect.Value) []reflect.Value {
 		outputKV, encodeErr := fn.OutputCodec.Encode(y[0].Interface(), y[1].Interface())
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)
@@ -768,11 +799,12 @@ func (fn *TransformFnCtx1x2Emit) ProcessElement(ctx context.Context, id beam.W, 
 }
 
 // TransformFn1x2ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFn1x2ErrEmit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func2x1
@@ -787,14 +819,14 @@ func (fn *TransformFn1x2ErrEmit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn1x2ErrEmit) ProcessElement(id beam.W, v beam.X, emit func(beam.W, beam.Z)) error {
+func (fn *TransformFn1x2ErrEmit) ProcessElement(id beam.W, v beam.X, emit func(beam.W, kv.Pair)) error {
 	var emitErr error
 	internalEmit := func(y []reflect.Value) []reflect.Value {
 		outputKV, encodeErr := fn.OutputCodec.Encode(y[0].Interface(), y[1].Interface())
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)
@@ -810,11 +842,12 @@ func (fn *TransformFn1x2ErrEmit) ProcessElement(id beam.W, v beam.X, emit func(b
 }
 
 // TransformFnCtx1x2ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: false
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: false
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFnCtx1x2ErrEmit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func3x1
@@ -829,14 +862,14 @@ func (fn *TransformFnCtx1x2ErrEmit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx1x2ErrEmit) ProcessElement(ctx context.Context, id beam.W, v beam.X, emit func(beam.W, beam.Z)) error {
+func (fn *TransformFnCtx1x2ErrEmit) ProcessElement(ctx context.Context, id beam.W, v beam.X, emit func(beam.W, kv.Pair)) error {
 	var emitErr error
 	internalEmit := func(y []reflect.Value) []reflect.Value {
 		outputKV, encodeErr := fn.OutputCodec.Encode(y[0].Interface(), y[1].Interface())
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)
@@ -852,11 +885,12 @@ func (fn *TransformFnCtx1x2ErrEmit) ProcessElement(ctx context.Context, id beam.
 }
 
 // TransformFn2x1Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFn2x1Emit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func3x0
@@ -871,8 +905,7 @@ func (fn *TransformFn2x1Emit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x1Emit) ProcessElement(id beam.W, kvp beam.Z, emit func(beam.W, beam.Y)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x1Emit) ProcessElement(id beam.W, inputKV kv.Pair, emit func(beam.W, beam.Y)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -888,11 +921,12 @@ func (fn *TransformFn2x1Emit) ProcessElement(id beam.W, kvp beam.Z, emit func(be
 }
 
 // TransformFnCtx2x1Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFnCtx2x1Emit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func4x0
@@ -907,8 +941,7 @@ func (fn *TransformFnCtx2x1Emit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x1Emit) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z, emit func(beam.W, beam.Y)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x1Emit) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair, emit func(beam.W, beam.Y)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -924,11 +957,12 @@ func (fn *TransformFnCtx2x1Emit) ProcessElement(ctx context.Context, id beam.W, 
 }
 
 // TransformFn2x1ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFn2x1ErrEmit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func3x1
@@ -943,8 +977,7 @@ func (fn *TransformFn2x1ErrEmit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x1ErrEmit) ProcessElement(id beam.W, kvp beam.Z, emit func(beam.W, beam.Y)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x1ErrEmit) ProcessElement(id beam.W, inputKV kv.Pair, emit func(beam.W, beam.Y)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -964,11 +997,12 @@ func (fn *TransformFn2x1ErrEmit) ProcessElement(id beam.W, kvp beam.Z, emit func
 }
 
 // TransformFnCtx2x1ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: false
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: false
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFnCtx2x1ErrEmit struct {
 	Transform  beam.EncodedFunc
 	tfn        reflectx.Func4x1
@@ -983,8 +1017,7 @@ func (fn *TransformFnCtx2x1ErrEmit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x1ErrEmit) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z, emit func(beam.W, beam.Y)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x1ErrEmit) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair, emit func(beam.W, beam.Y)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -1004,11 +1037,12 @@ func (fn *TransformFnCtx2x1ErrEmit) ProcessElement(ctx context.Context, id beam.
 }
 
 // TransformFn2x2Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFn2x2Emit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func3x0
@@ -1025,8 +1059,7 @@ func (fn *TransformFn2x2Emit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x2Emit) ProcessElement(id beam.W, kvp beam.Z, emit func(beam.W, beam.Z)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x2Emit) ProcessElement(id beam.W, inputKV kv.Pair, emit func(beam.W, kv.Pair)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -1038,7 +1071,7 @@ func (fn *TransformFn2x2Emit) ProcessElement(id beam.W, kvp beam.Z, emit func(be
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)
@@ -1050,11 +1083,12 @@ func (fn *TransformFn2x2Emit) ProcessElement(id beam.W, kvp beam.Z, emit func(be
 }
 
 // TransformFnCtx2x2Emit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: false
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: false
 type TransformFnCtx2x2Emit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func4x0
@@ -1071,8 +1105,7 @@ func (fn *TransformFnCtx2x2Emit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x2Emit) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z, emit func(beam.W, beam.Z)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x2Emit) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair, emit func(beam.W, kv.Pair)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -1084,7 +1117,7 @@ func (fn *TransformFnCtx2x2Emit) ProcessElement(ctx context.Context, id beam.W, 
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)
@@ -1096,11 +1129,12 @@ func (fn *TransformFnCtx2x2Emit) ProcessElement(ctx context.Context, id beam.W, 
 }
 
 // TransformFn2x2ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: false
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: false
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFn2x2ErrEmit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func3x1
@@ -1117,8 +1151,7 @@ func (fn *TransformFn2x2ErrEmit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFn2x2ErrEmit) ProcessElement(id beam.W, kvp beam.Z, emit func(beam.W, beam.Z)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFn2x2ErrEmit) ProcessElement(id beam.W, inputKV kv.Pair, emit func(beam.W, kv.Pair)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -1130,7 +1163,7 @@ func (fn *TransformFn2x2ErrEmit) ProcessElement(id beam.W, kvp beam.Z, emit func
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)
@@ -1146,11 +1179,12 @@ func (fn *TransformFn2x2ErrEmit) ProcessElement(id beam.W, kvp beam.Z, emit func
 }
 
 // TransformFnCtx2x2ErrEmit is a wrapper for DoFns of the following type on a PrivatePCollection:
-//   HasKVInput: true
-//   HasKVOutput: true
-//   HasCtx: true
-//   HasEmit: true
-//   HasErrOutput: true
+//
+//	HasKVInput: true
+//	HasKVOutput: true
+//	HasCtx: true
+//	HasEmit: true
+//	HasErrOutput: true
 type TransformFnCtx2x2ErrEmit struct {
 	Transform   beam.EncodedFunc
 	tfn         reflectx.Func4x1
@@ -1167,8 +1201,7 @@ func (fn *TransformFnCtx2x2ErrEmit) Setup() {
 }
 
 // ProcessElement runs the wrapped DoFn.
-func (fn *TransformFnCtx2x2ErrEmit) ProcessElement(ctx context.Context, id beam.W, kvp beam.Z, emit func(beam.W, beam.Z)) error {
-	inputKV := kvp.(kv.Pair)
+func (fn *TransformFnCtx2x2ErrEmit) ProcessElement(ctx context.Context, id beam.W, inputKV kv.Pair, emit func(beam.W, kv.Pair)) error {
 	inputK, inputV, decodeErr := fn.InputCodec.Decode(inputKV)
 	if decodeErr != nil {
 		return decodeErr
@@ -1180,7 +1213,7 @@ func (fn *TransformFnCtx2x2ErrEmit) ProcessElement(ctx context.Context, id beam.
 		if encodeErr != nil {
 			emitErr = encodeErr
 		}
-		emit(id, reflect.ValueOf(outputKV).Interface())
+		emit(id, outputKV)
 		return nil
 	}
 	rmef := reflect.MakeFunc(fn.EmitFnType.T, internalEmit)

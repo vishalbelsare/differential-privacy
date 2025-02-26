@@ -21,9 +21,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/google/differential-privacy/go/v2/noise"
+	"github.com/google/differential-privacy/go/v3/noise"
+	"github.com/google/differential-privacy/go/v3/stattestutils"
 	"github.com/google/go-cmp/cmp"
-	"github.com/grd/stat"
 )
 
 func TestNewCount(t *testing.T) {
@@ -217,31 +217,33 @@ func getNoiselessCount(t *testing.T) *Count {
 }
 
 func TestCountIncrement(t *testing.T) {
-	count := getNoiselessCount(t)
-	count.Increment()
-	count.Increment()
-	count.Increment()
-	count.Increment()
-	got, err := count.Result()
-	if err != nil {
-		t.Fatalf("Couldn't compute dp result: %v", err)
-	}
+	c := getNoiselessCount(t)
 	const want = 4
-	if got != want {
-		t.Errorf("Increment: after adding %d values got %d, want %d", want, got, want)
+	c.Increment()
+	c.Increment()
+	c.Increment()
+	c.Increment()
+
+	if c.count != want {
+		t.Errorf("IncrementBy: after adding %d got %d", want, c.count)
 	}
 }
 
 func TestCountIncrementBy(t *testing.T) {
-	count := getNoiselessCount(t)
-	count.IncrementBy(4)
-	got, err := count.Result()
-	if err != nil {
-		t.Fatalf("Couldn't compute dp result: %v", err)
-	}
+	c := getNoiselessCount(t)
 	const want = 4
-	if got != want {
-		t.Errorf("IncrementBy: after adding %d got %d, want %d", want, got, want)
+	c.IncrementBy(want)
+	if c.count != want {
+		t.Errorf("IncrementBy: after adding %d got %d", want, c.count)
+	}
+}
+
+func TestCountIncrementBy_NegativeValues(t *testing.T) {
+	c := getNoiselessCount(t)
+	const want = -2
+	c.IncrementBy(want)
+	if c.count != want {
+		t.Errorf("IncrementBy: after adding %d got %d", want, c.count)
 	}
 }
 
@@ -455,6 +457,48 @@ func TestCountThresholdedResult(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("ThresholdedResult(%f): after 5 entries got %v, want nil", tenten, got)
+	}
+}
+
+// Tests that a count smaller than the pre-threshold deterministically returns nil.
+func TestCount_CountSmallerThanPreThresholdReturnsNil(t *testing.T) {
+	// With a pre-threshold of 10, a count of 9 should not be kept.
+	//
+	// We use tiny threshold delta, which results in a DP threshold of 1 (after ceiling). A count is
+	// kept if it is greater than preThreshold + DPThreshold = 9 + 1 = 10.
+	//
+	// We use a tiny epsilon, which means the noisy count is greater than 10 with close to 1/2 probability.
+	//
+	// We run the test 50 times, which means it should fail with probability ~1-2^-50 if
+	// pre-thresholding doesn't drop counts smaller than the pre-threshold.
+	for i := 0; i < 50; i++ {
+		c, err := NewCount(&CountOptions{Epsilon: 1e-5, MaxPartitionsContributed: 1, Noise: noise.Laplace()})
+		if err != nil {
+			t.Fatalf("Couldn't create Count: %v", err)
+		}
+		c.IncrementBy(9)
+		res, err := c.PreThresholdedResult(10, 1-1e-10)
+		if err != nil {
+			t.Fatalf("Couldn't compute PreThresholdedResult: %v", err)
+		}
+		if res != nil {
+			t.Errorf("PreThresholdedResult returned a result (%d) for a count smaller than pre-threshold", *res)
+		}
+	}
+}
+
+// Tests that a count greater than the pre-threshold + DP threshold deterministically returns a non-nil result.
+func TestCount_CountGreaterThanPreThresholdReturnsResult(t *testing.T) {
+	// NoiselessCount has a DP threshold of 5.001. Using a Pre-Threshold of 10 means
+	// counts larger than 10 - 1 + 5.001 =14.001 should be deterministically kept.
+	c := getNoiselessCount(t)
+	c.IncrementBy(15)
+	res, err := c.PreThresholdedResult(10, 1e-5)
+	if err != nil {
+		t.Fatalf("Couldn't compute PreThresholdedResult: %v", err)
+	}
+	if res == nil {
+		t.Errorf("PreThresholdedResult returned nil for a count greater than the pre-threshold")
 	}
 }
 
@@ -771,19 +815,20 @@ func TestCountIsUnbiased(t *testing.T) {
 			variance: 1.8, // approximated via a simulation
 		},
 	} {
-		countSamples := make(stat.IntSlice, numberOfSamples)
+		countSamples := make([]float64, numberOfSamples)
 		for i := 0; i < numberOfSamples; i++ {
 			count, err := NewCount(tc.opt)
 			if err != nil {
 				t.Fatalf("Couldn't initialize count: %v", err)
 			}
 			count.IncrementBy(tc.rawCount)
-			countSamples[i], err = count.Result()
+			intSample, err := count.Result()
 			if err != nil {
 				t.Fatalf("Couldn't compute dp result: %v", err)
 			}
+			countSamples[i] = float64(intSample)
 		}
-		sampleMean := stat.Mean(countSamples)
+		sampleMean := stattestutils.SampleMean(countSamples)
 		// Assuming that count is unbiased, each sample should have a mean of tc.rawCount
 		// and a variance of tc.variance. The resulting sampleMean is approximately Gaussian
 		// distributed with the same mean and a variance of tc.variance / numberOfSamples.

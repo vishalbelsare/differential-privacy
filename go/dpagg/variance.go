@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/google/differential-privacy/go/v2/checks"
-	"github.com/google/differential-privacy/go/v2/noise"
+	"github.com/google/differential-privacy/go/v3/checks"
+	"github.com/google/differential-privacy/go/v3/noise"
 )
 
 // BoundedVariance calculates a differentially private variance of a collection of
@@ -108,14 +108,26 @@ func NewBoundedVariance(opt *BoundedVarianceOptions) (*BoundedVariance, error) {
 	if lower == 0 && upper == 0 {
 		return nil, fmt.Errorf("NewBoundedVariance: Lower and  Upper must be set (automatic bounds determination is not implemented yet). Lower and Upper cannot be both 0")
 	}
-	if err := checks.CheckBoundsFloat64(lower, upper); err != nil {
-		return nil, fmt.Errorf("NewBoundedVariance: CheckBoundsFloat64: %w", err)
+	switch noise.ToKind(opt.Noise) {
+	case noise.Unrecognised:
+		if err := checks.CheckBoundsFloat64IgnoreOverflows(lower, upper); err != nil {
+			return nil, fmt.Errorf("NewBoundedVariance: CheckBoundFloat64IgnoreOverflows: %w", err)
+		}
+	default:
+		if err := checks.CheckBoundsFloat64(lower, upper); err != nil {
+			return nil, fmt.Errorf("NewBoundedVariance: CheckBoundsFloat64: %w", err)
+		}
 	}
 	if err := checks.CheckBoundsNotEqual(lower, upper); err != nil {
 		return nil, fmt.Errorf("NewBoundedVariance: CheckBoundsNotEqual: %w", err)
 	}
-	// (lower + upper) / 2 may cause an overflow if lower and upper are large values.
-	midPoint := lower + (upper-lower)/2.0
+	// In case lower or upper bound is infinity, midPoint is set to 0.0 to prevent getting
+	// a NaN midPoint or sumMaxDistFromMidpoint.
+	midPoint := 0.0
+	if !math.IsInf(lower, 0) && !math.IsInf(upper, 0) {
+		// (lower + upper) / 2 may cause an overflow if lower and upper are large values.
+		midPoint = lower + (upper-lower)/2.0
+	}
 	sumMaxDistFromMidpoint := upper - midPoint
 
 	eps, del := opt.Epsilon, opt.Delta
@@ -232,33 +244,57 @@ func (bv *BoundedVariance) Add(e float64) error {
 //
 // Note that the returned value is not an unbiased estimate of the raw bounded variance.
 func (bv *BoundedVariance) Result() (float64, error) {
+	result, err := bv.ResultWithCountAndMean()
+	if err != nil {
+		return 0, fmt.Errorf("couldn't compute dp variance: %w", err)
+	}
+	return result.Variance, nil
+}
+
+// ResultWithCountAndMean returns a differentially private estimate of the count, mean, and variance
+// of bounded elements added so far. The method can be called only once.
+//
+// Note that none of the returned values are the unbiased estimate of the raw bounded statistics.
+func (bv *BoundedVariance) ResultWithCountAndMean() (BoundedVarianceResult, error) {
+	nullResult := BoundedVarianceResult{}
 	if bv.state != defaultState {
-		return 0, fmt.Errorf("BoundedVariance's noised result cannot be computed: " + bv.state.errorMessage())
+		return nullResult, fmt.Errorf(
+			"BoundedVariance's noised result cannot be computed: %s", bv.state.errorMessage())
 	}
 	bv.state = resultReturned
 
-	noisedCount, err := bv.Count.Result()
+	noisedCountInt, err := bv.Count.Result()
 	if err != nil {
-		return 0, fmt.Errorf("couldn't compute dp count: %w", err)
+		return nullResult, fmt.Errorf("couldn't compute dp count: %w", err)
 	}
-	noisedCountClamped := math.Max(1.0, float64(noisedCount))
+	noisedCountClamped := math.Max(1.0, float64(noisedCountInt))
 	noisedSum, err := bv.NormalizedSum.Result()
 	if err != nil {
-		return 0, fmt.Errorf("couldn't compute dp normalized sum: %w", err)
+		return nullResult, fmt.Errorf("couldn't compute dp normalized sum: %w", err)
 	}
 	noisedSumOfSquares, err := bv.NormalizedSumOfSquares.Result()
 	if err != nil {
-		return 0, fmt.Errorf("couldn't compute dp normalized sum of squares: %w", err)
+		return nullResult, fmt.Errorf("couldn't compute dp normalized sum of squares: %w", err)
 	}
 
 	normalizedMean := noisedSum / noisedCountClamped
 	normalizedMeanOfSquares := noisedSumOfSquares / noisedCountClamped
 
-	clamped, err := ClampFloat64(normalizedMeanOfSquares-normalizedMean*normalizedMean, 0.0, computeMaxVariance(bv.lower, bv.upper))
+	noisedMeanClamped, err := ClampFloat64(normalizedMean+bv.midPoint, bv.lower, bv.upper)
 	if err != nil {
-		return 0, fmt.Errorf("couldn't clamp the result: %w", err)
+		return nullResult, fmt.Errorf("couldn't clamp the mean: %w", err)
 	}
-	return clamped, nil
+
+	variance := normalizedMeanOfSquares - normalizedMean*normalizedMean
+	noisedVarianceClamped, err := ClampFloat64(variance, 0.0, computeMaxVariance(bv.lower, bv.upper))
+	if err != nil {
+		return nullResult, fmt.Errorf("couldn't clamp the variance: %w", err)
+	}
+	return BoundedVarianceResult{
+		Count:    float64(noisedCountInt),
+		Mean:     noisedMeanClamped,
+		Variance: noisedVarianceClamped,
+	}, nil
 }
 
 // Merge merges bv2 into bv (i.e., adds to bv all entries that were added to
@@ -293,7 +329,7 @@ func checkMergeBoundedVariance(bv1, bv2 *BoundedVariance) error {
 // GobEncode encodes BoundedVariance.
 func (bv *BoundedVariance) GobEncode() ([]byte, error) {
 	if bv.state != defaultState && bv.state != serialized {
-		return nil, fmt.Errorf("BoundedVariance object cannot be serialized: " + bv.state.errorMessage())
+		return nil, fmt.Errorf("BoundedVariance object cannot be serialized: %s", bv.state.errorMessage())
 	}
 	enc := encodableBoundedVariance{
 		Lower:                           bv.lower,
@@ -334,4 +370,12 @@ type encodableBoundedVariance struct {
 	EncodableNormalizedSum          *BoundedSumFloat64
 	EncodableNormalizedSumOfSquares *BoundedSumFloat64
 	Midpoint                        float64
+}
+
+// BoundedVarianceResult holds the noised count, mean, and variance output by
+// BoundedVariance.ResultWithCountAndMean.
+type BoundedVarianceResult struct {
+	Count    float64
+	Mean     float64
+	Variance float64
 }

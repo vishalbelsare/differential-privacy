@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <vector>
 
 #include "absl/status/status.h"
@@ -230,7 +231,7 @@ PrivacyLossDistribution::CreateForGaussianMechanism(
 absl::StatusOr<std::unique_ptr<PrivacyLossDistribution>>
 PrivacyLossDistribution::CreateForDiscreteGaussianMechanism(
     double sigma, int sensitivity, EstimateType estimate_type,
-    double discretization_interval, absl::optional<int> truncation_bound) {
+    double discretization_interval, std::optional<int> truncation_bound) {
   ASSIGN_OR_RETURN(std::unique_ptr<DiscreteGaussianPrivacyLoss> privacy_loss,
                    DiscreteGaussianPrivacyLoss::Create(sigma, sensitivity,
                                                        truncation_bound));
@@ -243,12 +244,17 @@ PrivacyLossDistribution::CreateForPrivacyParameters(
     EpsilonDelta epsilon_delta, double discretization_interval) {
   double epsilon = epsilon_delta.epsilon;
   double delta = epsilon_delta.delta;
-  ProbabilityMassFunction rounded_pmf = {
-      {std::ceil(epsilon / discretization_interval),
-       (1 - delta) / (1 + std::exp(-epsilon))},
-      {std::ceil(-epsilon / discretization_interval),
-       (1 - delta) / (1 + std::exp(epsilon))},
-  };
+  ProbabilityMassFunction rounded_pmf;
+  if (epsilon != 0) {
+    rounded_pmf = {
+        {std::ceil(epsilon / discretization_interval),
+         (1 - delta) / (1 + std::exp(-epsilon))},
+        {std::ceil(-epsilon / discretization_interval),
+         (1 - delta) / (1 + std::exp(epsilon))},
+    };
+  } else {
+    rounded_pmf = {{0, 1 - delta}};
+  }
 
   return absl::WrapUnique(new PrivacyLossDistribution(
       discretization_interval, /*infinity_mass=*/delta, rounded_pmf));

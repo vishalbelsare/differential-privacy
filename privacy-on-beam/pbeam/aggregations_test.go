@@ -20,11 +20,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/google/differential-privacy/go/v2/noise"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/pbeam/testutils"
-	"github.com/apache/beam/sdks/v2/go/pkg/beam"
+	"github.com/google/differential-privacy/go/v3/noise"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/pbeam/testutils"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/core/typex"
-	"github.com/apache/beam/sdks/v2/go/pkg/beam/testing/ptest"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 )
@@ -35,16 +33,24 @@ func TestNewBoundedSumFn(t *testing.T) {
 		cmpopts.IgnoreUnexported(boundedSumFloat64Fn{}, boundedSumInt64Fn{}),
 	}
 	for _, tc := range []struct {
-		desc      string
-		noiseKind noise.Kind
-		vKind     reflect.Kind
-		want      interface{}
+		desc                      string
+		noiseKind                 noise.Kind
+		vKind                     reflect.Kind
+		aggregationEpsilon        float64
+		aggregationDelta          float64
+		partitionSelectionEpsilon float64
+		partitionSelectionDelta   float64
+		preThreshold              int64
+		lower                     float64
+		upper                     float64
+		wantErr                   bool
+		want                      any
 	}{
-		{"Laplace Float64", noise.LaplaceNoise, reflect.Float64,
+		{"Laplace Float64", noise.LaplaceNoise, reflect.Float64, 0.5, 0, 0.5, 1e-5, 0, 0, 10, false,
 			&boundedSumFloat64Fn{
 				NoiseEpsilon:              0.5,
-				PartitionSelectionEpsilon: 0.5,
 				NoiseDelta:                0,
+				PartitionSelectionEpsilon: 0.5,
 				PartitionSelectionDelta:   1e-5,
 				MaxPartitionsContributed:  17,
 				Lower:                     0,
@@ -52,23 +58,23 @@ func TestNewBoundedSumFn(t *testing.T) {
 				NoiseKind:                 noise.LaplaceNoise,
 				PublicPartitions:          false,
 			}},
-		{"Gaussian Float64", noise.GaussianNoise, reflect.Float64,
+		{"Gaussian Float64", noise.GaussianNoise, reflect.Float64, 0.5, 1e-5, 0.5, 1e-5, 0, 0, 10, false,
 			&boundedSumFloat64Fn{
 				NoiseEpsilon:              0.5,
+				NoiseDelta:                1e-5,
 				PartitionSelectionEpsilon: 0.5,
-				NoiseDelta:                5e-6,
-				PartitionSelectionDelta:   5e-6,
+				PartitionSelectionDelta:   1e-5,
 				MaxPartitionsContributed:  17,
 				Lower:                     0,
 				Upper:                     10,
 				NoiseKind:                 noise.GaussianNoise,
 				PublicPartitions:          false,
 			}},
-		{"Laplace Int64", noise.LaplaceNoise, reflect.Int64,
+		{"Laplace Int64", noise.LaplaceNoise, reflect.Int64, 0.5, 0, 0.5, 1e-5, 0, 0, 10, false,
 			&boundedSumInt64Fn{
 				NoiseEpsilon:              0.5,
-				PartitionSelectionEpsilon: 0.5,
 				NoiseDelta:                0,
+				PartitionSelectionEpsilon: 0.5,
 				PartitionSelectionDelta:   1e-5,
 				MaxPartitionsContributed:  17,
 				Lower:                     0,
@@ -76,22 +82,58 @@ func TestNewBoundedSumFn(t *testing.T) {
 				NoiseKind:                 noise.LaplaceNoise,
 				PublicPartitions:          false,
 			}},
-		{"Gaussian Int64", noise.GaussianNoise, reflect.Int64,
+		{"Gaussian Int64", noise.GaussianNoise, reflect.Int64, 0.5, 1e-5, 0.5, 1e-5, 0, 0, 10, false,
 			&boundedSumInt64Fn{
 				NoiseEpsilon:              0.5,
+				NoiseDelta:                1e-5,
 				PartitionSelectionEpsilon: 0.5,
-				NoiseDelta:                5e-6,
-				PartitionSelectionDelta:   5e-6,
+				PartitionSelectionDelta:   1e-5,
 				MaxPartitionsContributed:  17,
 				Lower:                     0,
 				Upper:                     10,
 				NoiseKind:                 noise.GaussianNoise,
 				PublicPartitions:          false,
 			}},
+		{"PreThreshold set Int64", noise.GaussianNoise, reflect.Int64, 0.5, 1e-5, 0.5, 1e-5, 10, 0, 10, false,
+			&boundedSumInt64Fn{
+				NoiseEpsilon:              0.5,
+				NoiseDelta:                1e-5,
+				PartitionSelectionEpsilon: 0.5,
+				PartitionSelectionDelta:   1e-5,
+				PreThreshold:              10,
+				MaxPartitionsContributed:  17,
+				Lower:                     0,
+				Upper:                     10,
+				NoiseKind:                 noise.GaussianNoise,
+				PublicPartitions:          false,
+			}},
+		{"PreThreshold set Float64", noise.GaussianNoise, reflect.Float64, 0.5, 1e-5, 0.5, 1e-5, 10, 0, 10, false,
+			&boundedSumFloat64Fn{
+				NoiseEpsilon:              0.5,
+				NoiseDelta:                1e-5,
+				PartitionSelectionEpsilon: 0.5,
+				PartitionSelectionDelta:   1e-5,
+				PreThreshold:              10,
+				MaxPartitionsContributed:  17,
+				Lower:                     0,
+				Upper:                     10,
+				NoiseKind:                 noise.GaussianNoise,
+				PublicPartitions:          false,
+			}},
+		{"lower > upper", noise.GaussianNoise, reflect.Int64, 0.5, 1e-5, 0.5, 1e-5, 0, 10, 0, true, nil},
+		{"Float64 bounds that overflow when converted to int64", noise.GaussianNoise, reflect.Int64, 0.5, 1e-5, 0.5, 1e-5, 0, 0, 1e100, true, nil},
 	} {
-		got, err := newBoundedSumFn(1, 1e-5, 17, 0, 10, tc.noiseKind, tc.vKind, false, disabled)
-		if err != nil {
-			t.Fatalf("Couldn't get boundedSumFn: %v", err)
+		got, err := newBoundedSumFn(PrivacySpec{preThreshold: tc.preThreshold, testMode: TestModeDisabled},
+			SumParams{
+				AggregationEpsilon:       tc.aggregationEpsilon,
+				AggregationDelta:         tc.aggregationDelta,
+				PartitionSelectionParams: PartitionSelectionParams{Epsilon: tc.partitionSelectionEpsilon, Delta: tc.partitionSelectionDelta},
+				MaxPartitionsContributed: 17,
+				MinValue:                 tc.lower,
+				MaxValue:                 tc.upper,
+			}, tc.noiseKind, tc.vKind, false)
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("With %s, got=%v, wantErr=%t", tc.desc, err, tc.wantErr)
 		}
 		if diff := cmp.Diff(tc.want, got, opts...); diff != "" {
 			t.Errorf("newBoundedSumFn mismatch for '%s' (-want +got):\n%s", tc.desc, diff)
@@ -103,11 +145,17 @@ func TestBoundedSumFloat64FnSetup(t *testing.T) {
 	for _, tc := range []struct {
 		desc      string
 		noiseKind noise.Kind
-		wantNoise interface{}
+		wantNoise any
 	}{
 		{"Laplace noise kind", noise.LaplaceNoise, noise.Laplace()},
 		{"Gaussian noise kind", noise.GaussianNoise, noise.Gaussian()}} {
-		got, err := newBoundedSumFloat64Fn(1, 1e-5, 17, 0, 10, tc.noiseKind, false, disabled)
+		spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 0.5, PartitionSelectionEpsilon: 0.5, PartitionSelectionDelta: 1e-5})
+		got, err := newBoundedSumFloat64Fn(
+			*spec,
+			SumParams{AggregationEpsilon: 0.5, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 0.5, Delta: 1e-5}, MaxPartitionsContributed: 17, MinValue: 0, MaxValue: 10},
+			tc.noiseKind,
+			false,
+		)
 		if err != nil {
 			t.Fatalf("Couldn't get boundedSumFloat64Fn: %v", err)
 		}
@@ -122,11 +170,18 @@ func TestBoundedSumInt64FnSetup(t *testing.T) {
 	for _, tc := range []struct {
 		desc      string
 		noiseKind noise.Kind
-		wantNoise interface{}
+		wantNoise any
 	}{
 		{"Laplace noise kind", noise.LaplaceNoise, noise.Laplace()},
-		{"Gaussian noise kind", noise.GaussianNoise, noise.Gaussian()}} {
-		got, err := newBoundedSumInt64Fn(1, 1e-5, 17, 0, 10, tc.noiseKind, false, disabled)
+		{"Gaussian noise kind", noise.GaussianNoise, noise.Gaussian()},
+	} {
+		spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 0.5, PartitionSelectionEpsilon: 0.5, PartitionSelectionDelta: 1e-5})
+		got, err := newBoundedSumInt64Fn(
+			*spec,
+			SumParams{AggregationEpsilon: 0.5, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 0.5, Delta: 1e-5}, MaxPartitionsContributed: 17, MinValue: 0, MaxValue: 10},
+			tc.noiseKind,
+			false,
+		)
 		if err != nil {
 			t.Fatalf("Couldn't get boundedSumInf64Fn: %v", err)
 		}
@@ -139,9 +194,15 @@ func TestBoundedSumInt64FnSetup(t *testing.T) {
 
 func TestBoundedSumInt64FnAddInput(t *testing.T) {
 	// Since δ=0.5 and 2 entries are added, PreAggPartitionSelection always emits.
-	// Since ε=1e100, the noise is added with probability in the order of exp(-1e100),
+	// Since AggregationEpsilon=1e50, the noise is added with probability in the order of exp(-1e50),
 	// which means we don't have to worry about tolerance/flakiness calculations.
-	fn, err := newBoundedSumInt64Fn(1e100, 0.5, 1, 0, 2, noise.LaplaceNoise, false, disabled)
+	spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 1e50, PartitionSelectionEpsilon: 1e50, PartitionSelectionDelta: 0.5})
+	fn, err := newBoundedSumInt64Fn(
+		*spec,
+		SumParams{AggregationEpsilon: 1e50, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 1e50, Delta: 0.5}, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+		noise.LaplaceNoise,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Couldn't get boundedSumInt64Fn: %v", err)
 	}
@@ -169,9 +230,15 @@ func TestBoundedSumInt64FnMergeAccumulators(t *testing.T) {
 	// and deterministic with 2 inputs. This is used to verify that merging
 	// accumulators is also affecting our partition selection outcome.
 	//
-	// Since ε=1e100, the noise is added with probability in the order of exp(-1e100),
+	// Since AggregationEpsilon=1e50, the noise is added with probability in the order of exp(-1e50),
 	// which means we don't have to worry about tolerance/flakiness calculations.
-	fn, err := newBoundedSumInt64Fn(1e100, 0.5, 1, 0, 2, noise.LaplaceNoise, false, disabled)
+	spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 1e50, PartitionSelectionEpsilon: 1e50, PartitionSelectionDelta: 0.5})
+	fn, err := newBoundedSumInt64Fn(
+		*spec,
+		SumParams{AggregationEpsilon: 1e50, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 1e50, Delta: 0.5}, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+		noise.LaplaceNoise,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Couldn't get boundedSumInt64Fn: %v", err)
 	}
@@ -207,9 +274,15 @@ func TestBoundedSumInt64FnExtractOutputReturnsNilForSmallPartitions(t *testing.T
 		// It's a special case for partition selection in which the algorithm should always eliminate the partition.
 		{"Empty input", 0},
 		// The probability of keeping a partition with 1 privacy unit is equal to δ=1e-23 which results in a flakiness of 10⁻²³.
-		{"Input with 1 privacy unit", 1}} {
-
-		fn, err := newBoundedSumInt64Fn(1, 1e-23, 1, 0, 2, noise.LaplaceNoise, false, disabled)
+		{"Input with 1 privacy unit", 1},
+	} {
+		spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 0.5, PartitionSelectionEpsilon: 0.5, PartitionSelectionDelta: 1e-23})
+		fn, err := newBoundedSumInt64Fn(
+			*spec,
+			SumParams{AggregationEpsilon: 0.5, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 0.5, Delta: 1e-23}, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+			noise.LaplaceNoise,
+			false,
+		)
 		if err != nil {
 			t.Fatalf("Couldn't get boundedSumInt64Fn: %v", err)
 		}
@@ -242,9 +315,15 @@ func TestBoundedSumInt64FnExtractOutputWithPublicPartitionsDoesNotThreshold(t *t
 		{"Empty input", 0},
 		{"Input with 1 user", 1},
 		{"Input with 10 users", 10},
-		{"Input with 100 users", 100}} {
-
-		fn, err := newBoundedSumInt64Fn(1, 0, 1, 0, 2, noise.LaplaceNoise, true, disabled)
+		{"Input with 100 users", 100},
+	} {
+		spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 1.0})
+		fn, err := newBoundedSumFloat64Fn(
+			*spec,
+			SumParams{AggregationEpsilon: 1.0, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+			noise.LaplaceNoise,
+			true,
+		)
 		if err != nil {
 			t.Fatalf("Couldn't get boundedSumInt64Fn: %v", err)
 		}
@@ -270,8 +349,14 @@ func TestBoundedSumInt64FnExtractOutputWithPublicPartitionsDoesNotThreshold(t *t
 
 func TestBoundedSumFloat64FnAddInput(t *testing.T) {
 	// Since δ=0.5 and 2 entries are added, PreAggPartitionSelection always emits.
-	// Since ε=1e100, added noise is negligible.
-	fn, err := newBoundedSumFloat64Fn(1e100, 0.5, 1, 0, 2, noise.LaplaceNoise, false, disabled)
+	// Since AggregationEpsilon=1e50, added noise is negligible.
+	spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 1e50, PartitionSelectionEpsilon: 1e50, PartitionSelectionDelta: 0.5})
+	fn, err := newBoundedSumFloat64Fn(
+		*spec,
+		SumParams{AggregationEpsilon: 1e50, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 1e50, Delta: 0.5}, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+		noise.LaplaceNoise,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Couldn't get boundedSumFloat64Fn: %v", err)
 	}
@@ -289,7 +374,7 @@ func TestBoundedSumFloat64FnAddInput(t *testing.T) {
 		t.Fatalf("Couldn't extract output: %v", err)
 	}
 	want := testutils.Float64Ptr(4)
-	if diff := cmp.Diff(want, got, cmpopts.EquateApprox(0, testutils.LaplaceTolerance(23, 2, 1e100))); diff != "" {
+	if diff := cmp.Diff(want, got, cmpopts.EquateApprox(0, testutils.LaplaceTolerance(23, 2, 1e50))); diff != "" {
 		t.Errorf("unexpected output (-want +got):\n%s", diff)
 	}
 }
@@ -299,8 +384,14 @@ func TestBoundedSumFloat64FnMergeAccumulators(t *testing.T) {
 	// and deterministic with 2 inputs. This is used to verify that merging
 	// accumulators is also effecting our partition selection outcome.
 	//
-	// Since ε=1e100, added noise is negligible.
-	fn, err := newBoundedSumFloat64Fn(1e100, 0.5, 1, 0, 2, noise.LaplaceNoise, false, disabled)
+	// Since AggregationEpsilon=1e50, added noise is negligible.
+	spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 1e50, PartitionSelectionEpsilon: 1e50, PartitionSelectionDelta: 0.5})
+	fn, err := newBoundedSumFloat64Fn(
+		*spec,
+		SumParams{AggregationEpsilon: 1e50, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 1e50, Delta: 0.5}, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+		noise.LaplaceNoise,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Couldn't get boundedSumFloat64Fn: %v", err)
 	}
@@ -323,7 +414,7 @@ func TestBoundedSumFloat64FnMergeAccumulators(t *testing.T) {
 		t.Fatalf("Couldn't extract output: %v", err)
 	}
 	want := testutils.Float64Ptr(3)
-	if diff := cmp.Diff(want, got, cmpopts.EquateApprox(0, testutils.LaplaceTolerance(23, 2, 1e100))); diff != "" {
+	if diff := cmp.Diff(want, got, cmpopts.EquateApprox(0, testutils.LaplaceTolerance(23, 2, 1e50))); diff != "" {
 		t.Errorf("unexpected output (-want +got):\n%s", diff)
 	}
 }
@@ -338,7 +429,13 @@ func TestBoundedSumFloat64FnExtractOutputReturnsNilForSmallPartitions(t *testing
 		// The probability of keeping a partition with 1 privacy unit is equal to δ=1e-23 which results in a flakiness of 10⁻²³.
 		{"Input with 1 privacy unit", 1}} {
 
-		fn, err := newBoundedSumFloat64Fn(1, 1e-23, 1, 0, 2, noise.LaplaceNoise, false, disabled)
+		spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 0.5, PartitionSelectionEpsilon: 0.5, PartitionSelectionDelta: 1e-23})
+		fn, err := newBoundedSumFloat64Fn(
+			*spec,
+			SumParams{AggregationEpsilon: 0.5, PartitionSelectionParams: PartitionSelectionParams{Epsilon: 0.5, Delta: 1e-23}, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+			noise.LaplaceNoise,
+			false,
+		)
 		if err != nil {
 			t.Fatalf("Couldn't get boundedSumFloat64Fn: %v", err)
 		}
@@ -372,8 +469,13 @@ func TestBoundedSumFloat64FnExtractOutputWithPublicPartitionsDoesNotThreshold(t 
 		{"Input with 1 user", 1},
 		{"Input with 10 users", 10},
 		{"Input with 100 users", 100}} {
-		publicPartitions := true
-		fn, err := newBoundedSumFloat64Fn(1, 0, 1, 0, 2, noise.LaplaceNoise, publicPartitions, disabled)
+		spec := privacySpec(t, PrivacySpecParams{AggregationEpsilon: 1})
+		fn, err := newBoundedSumFloat64Fn(
+			*spec,
+			SumParams{AggregationEpsilon: 1, MaxPartitionsContributed: 1, MinValue: 0, MaxValue: 2},
+			noise.LaplaceNoise,
+			true,
+		)
 		if err != nil {
 			t.Fatalf("Couldn't get boundedSumFloat64Fn: %v", err)
 		}
@@ -396,148 +498,29 @@ func TestBoundedSumFloat64FnExtractOutputWithPublicPartitionsDoesNotThreshold(t 
 	}
 }
 
-// Checks that elements with non-public partitions are dropped.
-// This function is used for count and distinct_id.
-func TestDropNonPublicPartitionsVFn(t *testing.T) {
-	pairs := testutils.ConcatenatePairs(
-		testutils.MakePairsWithFixedV(7, 0),
-		testutils.MakePairsWithFixedV(52, 1),
-		testutils.MakePairsWithFixedV(99, 2),
-		testutils.MakePairsWithFixedV(10, 3),
-	)
-
-	// Keep partitions 0, 2;
-	// drop partitions 1, 3.
-	result := testutils.ConcatenatePairs(
-		testutils.MakePairsWithFixedV(7, 0),
-		testutils.MakePairsWithFixedV(99, 2),
-		testutils.MakePairsWithFixedV(99, 2),
-	)
-
-	_, s, col, want := ptest.CreateList2(pairs, result)
-	want = beam.ParDo(s, testutils.PairToKV, want)
-	col = beam.ParDo(s, testutils.PairToKV, col)
-	partitions := []int{0, 2}
-
-	partitionsCol := beam.CreateList(s, partitions)
-	epsilon, delta := 50.0, 1e-200
-	pcol := MakePrivate(s, col, NewPrivacySpec(epsilon, delta))
-	_, partitionT := beam.ValidateKVType(pcol.col)
-	partitionEncodedType := beam.EncodedType{partitionT.Type()}
-	got := dropNonPublicPartitionsVFn(s, partitionsCol, pcol, partitionEncodedType)
-	if err := testutils.EqualsKVInt(s, got, want); err != nil {
-		t.Fatalf("dropNonPublicPartitionsVFn: for %v got: %v, want %v", col, got, want)
-	}
-}
-
-// TestDropNonPublicPartitionsKVFn checks that int elements with non-public partitions
-// are dropped (tests function used for sum and mean).
-func TestDropNonPublicPartitionsKVFn(t *testing.T) {
-	triples := testutils.ConcatenateTriplesWithIntValue(
-		testutils.MakeSampleTripleWithIntValue(7, 0),
-		testutils.MakeSampleTripleWithIntValue(58, 1),
-		testutils.MakeSampleTripleWithIntValue(99, 2),
-		testutils.MakeSampleTripleWithIntValue(45, 100),
-		testutils.MakeSampleTripleWithIntValue(20, 33))
-	// Keep partitions 0, 2.
-	// Drop partitions 1, 33, 100.
-	result := testutils.ConcatenateTriplesWithIntValue(
-		testutils.MakeSampleTripleWithIntValue(7, 0),
-		testutils.MakeSampleTripleWithIntValue(99, 2))
-
-	_, s, col, col2 := ptest.CreateList2(triples, result)
-	// Doesn't matter that the values 3, 4, 5, 6, 9, 10
-	// are in the partitions PCollection because we are
-	// just dropping the values that are in our original PCollection
-	// that are not in public partitions.
-	partitionsCol := beam.CreateList(s, []int{0, 2, 3, 4, 5, 6, 9, 10})
-	col = beam.ParDo(s, testutils.ExtractIDFromTripleWithIntValue, col)
-	col2 = beam.ParDo(s, testutils.ExtractIDFromTripleWithIntValue, col2)
-	epsilon, delta := 50.0, 1e-200
-
-	pcol := MakePrivate(s, col, NewPrivacySpec(epsilon, delta))
-	pcol = ParDo(s, testutils.TripleWithIntValueToKV, pcol)
-	got := dropNonPublicPartitionsKVFn(s, partitionsCol, pcol, pcol.codec.KType)
-	got = beam.SwapKV(s, got)
-
-	pcol2 := MakePrivate(s, col2, NewPrivacySpec(epsilon, delta))
-	pcol2 = ParDo(s, testutils.TripleWithIntValueToKV, pcol2)
-	want := pcol2.col
-	want = beam.SwapKV(s, want)
-
-	if err := testutils.EqualsKVInt(s, got, want); err != nil {
-		t.Fatalf("dropPublicPartitionsKVFn: for %v got: %v, want %v", col, got, want)
-	}
-}
-
-// Check that float elements with non-public partitions
-// are dropped (tests function used for sum and mean).
-func TestDropNonPublicPartitionsFloat(t *testing.T) {
-	// In this test, we check  that non-public partitions
-	// are dropped. This function is used for sum and mean.
-	// Used example values from the mean test.
-	triples := testutils.ConcatenateTriplesWithFloatValue(
-		testutils.MakeTripleWithFloatValue(7, 0, 2.0),
-		testutils.MakeTripleWithFloatValueStartingFromKey(7, 100, 1, 1.3),
-		testutils.MakeTripleWithFloatValueStartingFromKey(107, 150, 1, 2.5),
-	)
-	// Keep partition 0.
-	// drop partition 1.
-	result := testutils.ConcatenateTriplesWithFloatValue(
-		testutils.MakeTripleWithFloatValue(7, 0, 2.0))
-
-	_, s, col, col2 := ptest.CreateList2(triples, result)
-
-	// Doesn't matter that the values 2, 3, 4, 5, 6, 7 are in the partitions PCollection.
-	// We are just dropping the values that are in our original PCollection that are not in
-	// public partitions.
-	partitionsCol := beam.CreateList(s, []int{0, 2, 3, 4, 5, 6, 7})
-	col = beam.ParDo(s, testutils.ExtractIDFromTripleWithFloatValue, col)
-	col2 = beam.ParDo(s, testutils.ExtractIDFromTripleWithFloatValue, col2)
-	epsilon, delta := 50.0, 1e-200
-
-	pcol := MakePrivate(s, col, NewPrivacySpec(epsilon, delta))
-	pcol = ParDo(s, testutils.TripleWithFloatValueToKV, pcol)
-	got := dropNonPublicPartitionsKVFn(s, partitionsCol, pcol, pcol.codec.KType)
-	got = beam.SwapKV(s, got)
-
-	pcol2 := MakePrivate(s, col2, NewPrivacySpec(epsilon, delta))
-	pcol2 = ParDo(s, testutils.TripleWithFloatValueToKV, pcol2)
-	want := pcol2.col
-	want = beam.SwapKV(s, want)
-
-	if err := testutils.EqualsKVInt(s, got, want); err != nil {
-		t.Fatalf("DropNonPublicPartitionsFloat: for %v got: %v, want %v", col, got, want)
-	}
-}
-
-func TestFindConvertToFloat64Fn(t *testing.T) {
+func TestCheckNumericType(t *testing.T) {
 	for _, tc := range []struct {
-		desc          string
-		fullType      typex.FullType
-		wantConvertFn interface{}
-		wantErr       bool
+		desc     string
+		fullType typex.FullType
+		wantErr  bool
 	}{
-		{"int", typex.New(reflect.TypeOf(int(0))), convertIntToFloat64Fn, false},
-		{"int8", typex.New(reflect.TypeOf(int8(0))), convertInt8ToFloat64Fn, false},
-		{"int16", typex.New(reflect.TypeOf(int16(0))), convertInt16ToFloat64Fn, false},
-		{"int32", typex.New(reflect.TypeOf(int32(0))), convertInt32ToFloat64Fn, false},
-		{"int64", typex.New(reflect.TypeOf(int64(0))), convertInt64ToFloat64Fn, false},
-		{"uint", typex.New(reflect.TypeOf(uint(0))), convertUintToFloat64Fn, false},
-		{"uint8", typex.New(reflect.TypeOf(uint8(0))), convertUint8ToFloat64Fn, false},
-		{"uint16", typex.New(reflect.TypeOf(uint16(0))), convertUint16ToFloat64Fn, false},
-		{"uint32", typex.New(reflect.TypeOf(uint32(0))), convertUint32ToFloat64Fn, false},
-		{"uint64", typex.New(reflect.TypeOf(uint64(0))), convertUint64ToFloat64Fn, false},
-		{"float32", typex.New(reflect.TypeOf(float32(0))), convertFloat32ToFloat64Fn, false},
-		{"float64", typex.New(reflect.TypeOf(float64(0))), convertFloat64ToFloat64Fn, false},
-		{"string", typex.New(reflect.TypeOf("")), nil, true},
+		{"int", typex.New(reflect.TypeOf(int(0))), false},
+		{"int8", typex.New(reflect.TypeOf(int8(0))), false},
+		{"int16", typex.New(reflect.TypeOf(int16(0))), false},
+		{"int32", typex.New(reflect.TypeOf(int32(0))), false},
+		{"int64", typex.New(reflect.TypeOf(int64(0))), false},
+		{"uint", typex.New(reflect.TypeOf(uint(0))), false},
+		{"uint8", typex.New(reflect.TypeOf(uint8(0))), false},
+		{"uint16", typex.New(reflect.TypeOf(uint16(0))), false},
+		{"uint32", typex.New(reflect.TypeOf(uint32(0))), false},
+		{"uint64", typex.New(reflect.TypeOf(uint64(0))), false},
+		{"float32", typex.New(reflect.TypeOf(float32(0))), false},
+		{"float64", typex.New(reflect.TypeOf(float64(0))), false},
+		{"string", typex.New(reflect.TypeOf("")), true},
 	} {
-		convertFn, err := findConvertToFloat64Fn(tc.fullType)
+		err := checkNumericType(tc.fullType)
 		if (err != nil) != tc.wantErr {
-			t.Errorf("findConvertToFloat64Fn: when %s for err got got %v, want %t", tc.desc, err, tc.wantErr)
-		}
-		if !reflect.DeepEqual(reflect.TypeOf(convertFn), reflect.TypeOf(tc.wantConvertFn)) {
-			t.Errorf("findConvertToFloat64Fn: when %s got %v, want %v", tc.desc, convertFn, tc.wantConvertFn)
+			t.Errorf("checkNumericType: when %s for err got got %v, want %t", tc.desc, err, tc.wantErr)
 		}
 	}
 }

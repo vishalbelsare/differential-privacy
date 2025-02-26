@@ -20,7 +20,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/google/differential-privacy/privacy-on-beam/v2/pbeam"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/pbeam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/io/textio"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/runners/direct"
@@ -64,7 +64,14 @@ func Example() {
 	// provided by the pipeline.
 	const ε, δ = 1, 1e-3
 
-	privacySpec := pbeam.NewPrivacySpec(ε, δ)
+	privacySpec, err := pbeam.NewPrivacySpec(pbeam.PrivacySpecParams{
+		AggregationEpsilon:        ε / 2,
+		PartitionSelectionEpsilon: ε / 2,
+		AggregationDelta:          δ,
+	})
+	if err != nil {
+		// Handle error.
+	}
 	pcol := pbeam.MakePrivateFromStruct(s, icol, privacySpec, "visitorID")
 	// pcol is now a PrivatePCollection<visit>.
 

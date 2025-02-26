@@ -22,7 +22,10 @@
 #include <cstring>
 #include <limits>
 
-#include "base/logging.h"
+#include "absl/base/const_init.h"
+#include "absl/base/optimization.h"
+#include "absl/flags/flag.h"
+#include "absl/log/check.h"
 #include "absl/numeric/bits.h"
 #include "absl/synchronization/mutex.h"
 #include "openssl/rand.h"
@@ -38,10 +41,12 @@ static_assert(sizeof(double) == sizeof(uint64_t) &&
               "double representation is not IEEE 754 binary64.");
 const constexpr int kMantDigits = DBL_MANT_DIG - 1;
 const constexpr uint64_t kMantissaMask = (uint64_t{1} << kMantDigits) - 1ULL;
+
+ABSL_CONST_INIT absl::Mutex global_mutex(absl::kConstInit);
 }  // namespace
 
 double UniformDouble() {
-  uint64_t uint_64_number = SecureURBG::GetSingleton()();
+  uint64_t uint_64_number = SecureURBG::GetInstance()();
   // A random integer of Uniform[0, 2^kMantDigits).
   uint64_t i = uint_64_number & kMantissaMask;
 
@@ -67,17 +72,23 @@ double UniformDouble() {
   i += j;
   double r;
   std::memcpy(&r, &i, sizeof(r));
-  return r == 0 ? 1.0 : r;
+  return r;
 }
 
 uint64_t Geometric() {
   uint64_t result = 1;
   uint64_t r = 0;
   while (r == 0 && result < 1023) {
-    r = SecureURBG::GetSingleton()();
+    r = SecureURBG::GetInstance()();
     result += absl::countl_zero(r);
   }
   return result;
+}
+
+SecureURBG& SecureURBG::GetInstance() {
+
+  static auto* kInstance = new SecureURBG;
+  return *kInstance;
 }
 
 SecureURBG::result_type SecureURBG::operator()() {
@@ -93,7 +104,11 @@ SecureURBG::result_type SecureURBG::operator()() {
 }
 
 void SecureURBG::RefreshBuffer() {
-  const int one_on_success = RAND_bytes(buffer_, kBufferSize);
+  int one_on_success = 0;
+  {
+    absl::MutexLock lock(&global_mutex);
+    one_on_success = RAND_bytes(buffer_, kBufferSize);
+  }
   CHECK(one_on_success == 1)
       << "Error during buffer refresh: OpenSSL's RAND_byte is expected to "
          "return 1 on success, but returned "

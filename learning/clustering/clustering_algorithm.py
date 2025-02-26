@@ -195,6 +195,8 @@ def private_lsh_clustering(
     privacy_budget_split: typing.Optional[
         clustering_params.PrivacyBudgetSplit] = None,
     tree_param: typing.Optional[clustering_params.TreeParam] = None,
+    multipliers: typing.Optional[
+        clustering_params.PrivacyCalculatorMultiplier] = None,
     short_description: str = "CoresetParam") -> ClusteringResult:
   """Clusters data into k clusters.
 
@@ -203,10 +205,13 @@ def private_lsh_clustering(
     data: Data to find centers for. Centering the data around the origin
       beforehand may provide performance improvements.
     privacy_param: Differential privacy parameters.
-    privacy_budget_split: Optional privacy budget split between operations in
-      the clustering algorithm for fine-tuning.
+    privacy_budget_split: Deprecated.
     tree_param: Optional tree parameters for generating the LSH net tree for
       fine-tuning.
+    multipliers: Optional multipliers for fine-tuning. These are used to
+      determine noise parameters for the clustering algorithm.
+      See the clustering_params.PrivacyCalculatorMultiplier documentation for
+      details.
     short_description: Optional description to identify this parameter
       configuration.
 
@@ -214,6 +219,13 @@ def private_lsh_clustering(
     ClusteringResult with differentially private centers. The rest of
     ClusteringResult is nonprivate, and only provided for convenience.
   """
+  # Warn about deprecated arguments.
+  if privacy_budget_split is not None:
+    logging.warn(
+        "Ignoring privacy_budget_split (%s), privacy_budget_split is deprecated"
+        " and has been replaced with multipliers.", privacy_budget_split
+    )
+
   # Note that max_depth is used for the private count calculation so it cannot
   # depend on the count.
   # Chosen experimentally over multiple datasets.
@@ -222,11 +234,15 @@ def private_lsh_clustering(
   else:
     max_depth = tree_param.max_depth
 
-  # Initialize the parameters.
-  if privacy_budget_split is None:
-    privacy_budget_split = clustering_params.PrivacyBudgetSplit()
-  pcalc = privacy_calculator.PrivacyCalculator.from_budget_split(
-      privacy_param, privacy_budget_split, data.radius, max_depth)
+  # Use default multiplier if not provided.
+  multipliers = (clustering_params.PrivacyCalculatorMultiplier()
+                 if multipliers is None else multipliers)
+
+  pcalc = privacy_calculator.PrivacyCalculator(
+      privacy_param, data.radius, max_depth, multipliers)
+
+  logging.debug("Privacy calculator: %s", pcalc)
+  pcalc.validate_accounting(privacy_param, max_depth)
 
   private_count = None
   if tree_param is None:

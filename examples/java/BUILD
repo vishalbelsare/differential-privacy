@@ -12,10 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
-package(default_visibility = [
-    "//visibility:public",
-])
+load("@rules_java//java:defs.bzl", "java_binary")
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
 
 java_plugin(
     name = "autovalue_plugin",

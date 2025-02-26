@@ -16,8 +16,10 @@
 
 #include "algorithms/approx-bounds.h"
 
+#include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "base/testing/proto_matchers.h"
@@ -27,8 +29,11 @@
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/cord.h"
+#include "algorithms/internal/clamped-calculation-without-bounds.h"
 #include "algorithms/numerical-mechanisms-testing.h"
 #include "algorithms/numerical-mechanisms.h"
+#include "proto/data.pb.h"
 
 namespace differential_privacy {
 
@@ -62,8 +67,10 @@ class ApproxBoundsTestPeer {
 namespace {
 
 using ::differential_privacy::test_utils::ZeroNoiseMechanism;
+using ::testing::Eq;
 using ::differential_privacy::base::testing::EqualsProto;
 using ::testing::HasSubstr;
+using ::testing::Optional;
 using ::differential_privacy::base::testing::StatusIs;
 
 template <typename T>
@@ -167,10 +174,10 @@ TEST(ApproxBoundsTest, AddMultipleEntriesInvalidNumberOfEntriesTest) {
 
   // Expect adding an invalid number of entries to be ignored.
   std::vector<int64_t> invalid_entries{0, -1,
-                                     std::numeric_limits<int64_t>::lowest()};
+                                       std::numeric_limits<int64_t>::lowest()};
   for (int64_t n_entries : invalid_entries) {
     ApproxBoundsTestPeer::AddMultipleEntries<int64_t>(1, n_entries,
-                                                    bounds.value().get());
+                                                      bounds.value().get());
   }
 
   absl::StatusOr<Output> result = (*bounds)->PartialResult();
@@ -190,9 +197,13 @@ TYPED_TEST(ApproxBoundsTest, EmptyHistogramTest) {
           .SetLaplaceMechanism(absl::make_unique<ZeroNoiseMechanism::Builder>())
           .Build();
   ASSERT_OK(bounds);
-  EXPECT_THAT((*bounds)->PartialResult(),
-              StatusIs(absl::StatusCode::kFailedPrecondition,
-                       HasSubstr("Bin count threshold was too large")));
+  absl::StatusOr<Output> result = bounds->get()->PartialResult();
+  EXPECT_THAT(result, StatusIs(absl::StatusCode::kFailedPrecondition,
+                               HasSubstr("Bin count threshold was too large")));
+  EXPECT_THAT(
+      result.status().GetPayload(
+          "type.googleapis.com/differential_privacy.ApproxBoundsNotEnoughData"),
+      Optional(Eq(absl::Cord())));
 }
 
 TEST(ApproxBoundsTest, RetriesBoundingTest) {
@@ -243,6 +254,10 @@ TYPED_TEST(ApproxBoundsTest, ExplicitThresholdNotRelaxed) {
 
   EXPECT_THAT(result, StatusIs(absl::StatusCode::kFailedPrecondition,
                                HasSubstr("Bin count threshold was too large")));
+  EXPECT_THAT(
+      result.status().GetPayload(
+          "type.googleapis.com/differential_privacy.ApproxBoundsNotEnoughData"),
+      Optional(Eq(absl::Cord())));
 }
 
 TEST(ApproxBoundsTest, InsufficientPrivacyBudgetTest) {
@@ -260,9 +275,13 @@ TEST(ApproxBoundsTest, InsufficientPrivacyBudgetTest) {
   (*bounds)->AddEntries(a.begin(), a.end());
   absl::StatusOr<Output> result = (*bounds)->PartialResult();
   ASSERT_OK(result);
-  EXPECT_THAT((*bounds)->PartialResult(),
-              StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("can only produce results once")));
+  absl::StatusOr<Output> output = bounds->get()->PartialResult();
+  EXPECT_THAT(output, StatusIs(absl::StatusCode::kInvalidArgument,
+                               HasSubstr("can only produce results once")));
+  EXPECT_THAT(
+      output.status().GetPayload(
+          "type.googleapis.com/differential_privacy.ApproxBoundsNotEnoughData"),
+      Eq(std::nullopt));
 }
 
 TEST(ApproxBoundsTest, SmallScale) {
@@ -456,7 +475,8 @@ TYPED_TEST(ApproxBoundsTest, ComputeFromPartialsCountValidityTest) {
   (*bounds)->template AddToPartials<TypeParam>(&pos_sum, 6, difference);
   (*bounds)->template AddToPartials<TypeParam>(&neg_sum, -3, difference);
 
-  std::vector<int64_t> invalid_entries{-1, std::numeric_limits<int64_t>::lowest()};
+  std::vector<int64_t> invalid_entries{-1,
+                                       std::numeric_limits<int64_t>::lowest()};
   absl::StatusOr<TypeParam> result;
   for (int64_t n_entries : invalid_entries) {
     result = (*bounds)->template ComputeFromPartials<TypeParam>(
@@ -865,7 +885,7 @@ TYPED_TEST(ApproxBoundsTest,
   std::vector<TypeParam> expected(n_bins, 0);
 
   std::vector<int64_t> invalid_entries{0, -1,
-                                     std::numeric_limits<int64_t>::lowest()};
+                                       std::numeric_limits<int64_t>::lowest()};
 
   for (int64_t n_entries : invalid_entries) {
     ApproxBoundsTestPeer::AddMultipleEntriesToPartials<TypeParam, TypeParam>(
@@ -1047,8 +1067,9 @@ TYPED_TEST(ApproxBoundsTest, OverflowComputeFromPartials) {
 
   std::vector<int64_t> neg_sum = {0, -1, -2, int64lowest};
   std::vector<int64_t> pos_sum = {0, 0, 0, 0};
-  absl::StatusOr<int64_t> result = (*bounds)->template ComputeFromPartials<int64_t>(
-      pos_sum, neg_sum, value_transform, int64lowest, int64max, 2);
+  absl::StatusOr<int64_t> result =
+      (*bounds)->template ComputeFromPartials<int64_t>(
+          pos_sum, neg_sum, value_transform, int64lowest, int64max, 2);
   ASSERT_OK(result);
   // The negative sums should overflow to positive
   EXPECT_GT(result.value(), 0);
@@ -1148,6 +1169,26 @@ TEST(ApproxBoundsTest, DefaultNumBinsForInt64Is64) {
       ApproxBounds<int64_t>::Builder().SetEpsilon(1.1).SetScale(1.0).Build();
   ASSERT_OK(bounds);
   EXPECT_EQ(bounds.value()->GetNumPosBinsForTesting(), 64);
+}
+
+TYPED_TEST(ApproxBoundsTest,
+           CreateClampedCalculationWithoutBoundsHasSameProperties) {
+  absl::StatusOr<std::unique_ptr<ApproxBounds<TypeParam>>> bounds =
+      typename ApproxBounds<TypeParam>::Builder()
+          .SetEpsilon(1.1)
+          .SetScale(2.0)
+          .SetNumBins(5)
+          .SetBase(3)
+          .Build();
+  ASSERT_OK(bounds);
+
+  std::unique_ptr<internal::ClampedCalculationWithoutBounds<TypeParam>>
+      clamped_calculation =
+          bounds.value()->CreateClampedCalculationWithoutBounds();
+
+  EXPECT_THAT(clamped_calculation->GetNumBins(), Eq(5));
+  EXPECT_THAT(clamped_calculation->GetScaleForTesting(), Eq(2.0));
+  EXPECT_THAT(clamped_calculation->GetBaseForTesting(), Eq(3));
 }
 
 }  //  namespace

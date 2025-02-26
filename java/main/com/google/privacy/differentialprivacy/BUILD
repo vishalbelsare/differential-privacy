@@ -12,10 +12,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
 
-package(default_visibility = [
-    "//visibility:public",
-])
+load("@rules_java//java:defs.bzl", "java_library")
+
+package(
+    default_visibility = [
+        "//visibility:public",
+    ],
+)
 
 java_plugin(
     name = "autovalue_plugin",
@@ -52,6 +57,17 @@ java_library(
         "@maven//:com_google_guava_guava",
         "@maven//:com_google_protobuf_protobuf_java",
         "@maven//:org_apache_commons_commons_math3",
+    ],
+)
+
+java_library(
+    name = "zero_noise",
+    testonly = 1,
+    srcs = ["ZeroNoise.java"],
+    deps = [
+        ":differentialprivacy",
+        "@com_google_differential_privacy//proto:summary_java_proto",
+        "@maven//:com_google_code_findbugs_jsr305",
     ],
 )
 

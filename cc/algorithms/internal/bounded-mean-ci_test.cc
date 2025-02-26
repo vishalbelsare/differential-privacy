@@ -17,13 +17,15 @@
 #include "algorithms/internal/bounded-mean-ci.h"
 
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <utility>
 
-#include "base/logging.h"
+#include "base/testing/proto_matchers.h"
+#include "base/testing/status_matchers.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "absl/status/status.h"
+#include "absl/log/check.h"
 #include "absl/status/statusor.h"
 #include "algorithms/numerical-mechanisms.h"
 #include "proto/confidence-interval.pb.h"
@@ -36,6 +38,7 @@ using ::testing::_;
 using ::testing::AtLeast;
 using ::testing::DoubleEq;
 using ::testing::DoubleNear;
+using ::differential_privacy::base::testing::EqualsProto;
 using ::testing::Gt;
 using ::testing::Lt;
 using ::testing::StrictMock;
@@ -245,6 +248,19 @@ TEST(BoundedMeanCiTest,
   // more privacy units.
   EXPECT_LT(ci_fewer_units.lower_bound(), ci_more_units.lower_bound());
   EXPECT_GT(ci_fewer_units.upper_bound(), ci_more_units.upper_bound());
+}
+
+TEST(BoundedMeanCiTest, InfiniteNoisedParamsReturnsDefaultCi) {
+  BoundedMeanConfidenceIntervalParams params;
+  params.confidence_level = 0.9;
+  params.lower_bound = -1.0;
+  params.upper_bound = 1.0;
+  params.noised_sum = std::numeric_limits<double>::infinity();
+  params.noised_count = std::numeric_limits<double>::infinity();
+  params.sum_mechanism = nullptr;
+  params.count_mechanism = nullptr;
+
+  EXPECT_THAT(BoundedMeanConfidenceInterval(params), EqualsProto(""));
 }
 
 }  // namespace

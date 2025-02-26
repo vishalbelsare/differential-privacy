@@ -25,6 +25,7 @@
 #include "absl/strings/string_view.h"
 #include "algorithms/rand.h"
 #include "algorithms/util.h"
+#include "third_party/cephes/inverse_gaussian_cdf.h"
 #include "base/status_macros.h"
 
 namespace differential_privacy {
@@ -108,7 +109,7 @@ double GaussianDistribution::cdf(double stddev, double x) {
 
 double GaussianDistribution::Quantile(double stddev, double x) {
   DCHECK_GT(stddev, 0);
-  return stddev * std::sqrt(2) * InverseErrorFunction(2 * x - 1);
+  return stddev * third_party::cephes::InverseCdfStandardGaussian(x);
 }
 
 GeometricDistribution::Builder& GeometricDistribution::Builder::SetLambda(
@@ -131,7 +132,7 @@ GeometricDistribution::GeometricDistribution(double lambda) : lambda_(lambda) {
 
 double GaussianDistribution::SampleGeometric() {
   int geom_sample = 0;
-  while (absl::Bernoulli(SecureURBG::GetSingleton(), 0.5)) ++geom_sample;
+  while (absl::Bernoulli(SecureURBG::GetInstance(), 0.5)) ++geom_sample;
   return geom_sample;
 }
 
@@ -147,7 +148,7 @@ double GaussianDistribution::SampleBinomial(double sqrt_n) {
   long long step_size =
       static_cast<long long>(std::round(std::sqrt(2.0) * sqrt_n + 1));
 
-  SecureURBG& random = SecureURBG::GetSingleton();
+  SecureURBG& random = SecureURBG::GetInstance();
   while (true) {
     int geom_sample = SampleGeometric();
     int two_sided_geom =
@@ -214,7 +215,8 @@ double GeometricDistribution::Lambda() { return lambda_; }
 // overflow during noise sampling. The probability of such an event will be well
 // below 2^-1000, if the granularity parameter is set to a value of 2^40 or less
 // and the epsilon passed to addNoise is at least 2^-50.
-constexpr double kLaplaceGranularityParam = static_cast<double>(int64_t{1} << 40);
+constexpr double kLaplaceGranularityParam =
+    static_cast<double>(int64_t{1} << 40);
 
 absl::Status LaplaceDistribution::ValidateEpsilon(double epsilon) {
   RETURN_IF_ERROR(ValidateIsFiniteAndPositive(epsilon, "Epsilon"));
@@ -295,7 +297,7 @@ LaplaceDistribution::LaplaceDistribution(double epsilon, double sensitivity)
 double LaplaceDistribution::GetUniformDouble() { return UniformDouble(); }
 
 bool LaplaceDistribution::GetBoolean() {
-  return absl::Bernoulli(SecureURBG::GetSingleton(), 0.5);
+  return absl::Bernoulli(SecureURBG::GetInstance(), 0.5);
 }
 
 double LaplaceDistribution::Sample() {

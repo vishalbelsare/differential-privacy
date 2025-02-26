@@ -20,13 +20,14 @@ workspace(name = "zetasql_example")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-# 2021-05-14
 http_archive(
     name = "com_google_zetasql",
-    sha256 = "9141d9755d1f91ff4d1c5a73087255bd9c5eb020e46109db92022906c77d760c",
-    strip_prefix = "zetasql-dd883180de6387ad80bcf7534b5aae8191e66621",
-    url = "https://github.com/google/zetasql/archive/dd883180de6387ad80bcf7534b5aae8191e66621.tar.gz",
+    sha256 = "58510f44dc815648039fd4e45fc40da3d9f0a746cf483e6bbc5171e984eb7e79",
+    strip_prefix = "zetasql-2024.03.1",
+    url = "https://github.com/google/zetasql/archive/refs/tags/2024.03.1.tar.gz",
 )
+
+# Transitive dependencies from the ZetaSQL WORKSPACE file:
 
 load("@com_google_zetasql//bazel:zetasql_deps_step_1.bzl", "zetasql_deps_step_1")
 
@@ -34,11 +35,20 @@ zetasql_deps_step_1()
 
 load("@com_google_zetasql//bazel:zetasql_deps_step_2.bzl", "zetasql_deps_step_2")
 
-zetasql_deps_step_2()
+zetasql_deps_step_2(
+    java_deps = False,
+    testing_deps = False,
+)
 
-load("@com_google_zetasql//bazel:zetasql_deps_step_3.bzl", "zetasql_deps_step_3")
+# Only need to load a subset of zetasql_deps_step_3:
 
-zetasql_deps_step_3()
+load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
+
+protobuf_deps()
+
+load("@com_github_grpc_grpc//bazel:grpc_deps.bzl", "grpc_deps")
+
+grpc_deps()
 
 load("@com_google_zetasql//bazel:zetasql_deps_step_4.bzl", "zetasql_deps_step_4")
 

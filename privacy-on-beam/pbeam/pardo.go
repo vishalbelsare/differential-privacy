@@ -21,8 +21,8 @@ import (
 	"reflect"
 
 	log "github.com/golang/glog"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/generated"
-	"github.com/google/differential-privacy/privacy-on-beam/v2/internal/kv"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/generated"
+	"github.com/google/differential-privacy/privacy-on-beam/v3/internal/kv"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/core/funcx"
 	"github.com/apache/beam/sdks/v2/go/pkg/beam/core/util/reflectx"
@@ -32,17 +32,17 @@ import (
 // identifiers. For now, it only works if doFn is a function that has one of
 // the following types.
 //
-// 	Transforms a PrivatePCollection<X> into a PrivatePCollection<Y>:
+//	Transforms a PrivatePCollection<X> into a PrivatePCollection<Y>:
 //		- func(X) Y
 //		- func(context.Context, X) Y
-// 		- func(X) (Y, error)
-// 		- func(context.Context, X) (Y, error)
+//		- func(X) (Y, error)
+//		- func(context.Context, X) (Y, error)
 //		- func(X, emit), where emit has type func(Y)
 //		- func(context.Context, X, emit), where emit has type func(Y)
 //		- func(X, emit) error, where emit has type func(Y)
 //		- func(context.Context, X, emit) error, where emit has type func(Y)
 //
-// 	Transforms a PrivatePCollection<X> into a PrivatePCollection<Y,Z>:
+//	Transforms a PrivatePCollection<X> into a PrivatePCollection<Y,Z>:
 //		- func(X) (Y, Z)
 //		- func(context.Context, X) (Y, Z)
 //		- func(X) (Y, Z, error)
@@ -52,7 +52,7 @@ import (
 //		- func(X, emit) error, where emit has type func(Y, Z)
 //		- func(context.Context, X, emit) error, where emit has type func(Y, Z)
 //
-// 	Transforms a PrivatePCollection<W,X> into a PrivatePCollection<Y>:
+//	Transforms a PrivatePCollection<W,X> into a PrivatePCollection<Y>:
 //		- func(W, X) Y
 //		- func(context.Context, W, X) Y
 //		- func(W, X) (Y, error)
@@ -74,7 +74,7 @@ import (
 //
 // Note that Beam universal types (e.g., beam.V, beam.T, etc.) are not supported:
 // each of the X, Y, Z, W above needs to be a concrete type.
-func ParDo(s beam.Scope, doFn interface{}, pcol PrivatePCollection) PrivatePCollection {
+func ParDo(s beam.Scope, doFn any, pcol PrivatePCollection) PrivatePCollection {
 	s = s.Scope("pbeam.ParDo")
 	// Convert the doFn into a anonDoFn.
 	anonDoFn, err := buildDoFn(doFn)
@@ -107,16 +107,21 @@ type transform struct {
 
 // anonDoFn contains the transformed doFn that is passed to Beam, as well as metadata.
 type anonDoFn struct {
-	fn      interface{}         // the transformed doFn passed to Beam
+	fn      any                 // the transformed doFn passed to Beam
 	typeDef beam.TypeDefinition // the type definition necessary for Beam to process fn
 	codec   *kv.Codec           // if fn outputs a KV pair, the codec that can decode this pair
 }
 
 // buildDoFn validates the provided doFn and transforms it into an *anonDoFn.
-func buildDoFn(doFn interface{}) (*anonDoFn, error) {
-	if reflect.ValueOf(doFn).Type().Kind() != reflect.Func {
+func buildDoFn(doFn any) (*anonDoFn, error) {
+	if reflect.TypeOf(doFn).Kind() != reflect.Func {
 		return nil, fmt.Errorf("pbeam.ParDo doesn't support structural DoFns for now: doFn must be a function")
 	}
+	err := checkUniversalTypes(reflect.TypeOf(doFn))
+	if err != nil {
+		return nil, err
+	}
+
 	reflectxFn := reflectx.MakeFunc(doFn)
 	funcxFn, err := funcx.New(reflectxFn)
 	if err != nil {
@@ -164,6 +169,45 @@ func buildDoFn(doFn interface{}) (*anonDoFn, error) {
 		return buildEmitDoFn(reflectxFn, t)
 	}
 	return buildFunctionalDoFn(reflectxFn, t)
+}
+
+func checkUniversalTypes(t reflect.Type) error {
+	universalTypes := [7]reflect.Type{
+		reflect.TypeOf((*beam.T)(nil)).Elem(),
+		reflect.TypeOf((*beam.U)(nil)).Elem(),
+		reflect.TypeOf((*beam.V)(nil)).Elem(),
+		reflect.TypeOf((*beam.W)(nil)).Elem(),
+		reflect.TypeOf((*beam.X)(nil)).Elem(),
+		reflect.TypeOf((*beam.Y)(nil)).Elem(),
+		reflect.TypeOf((*beam.Z)(nil)).Elem(),
+	}
+	for i := 0; i < t.NumIn(); i++ {
+		if t.In(i).Kind() == reflect.Func {
+			if err := checkUniversalTypes(t.In(i)); err != nil {
+				return err
+			}
+			continue
+		}
+		for j := 0; j < len(universalTypes); j++ {
+			if t.In(i) == universalTypes[j] {
+				return fmt.Errorf("pbeam.ParDo doesn't support DoFns with beam universal types, got function with %v", t.In(i))
+			}
+		}
+	}
+	for i := 0; i < t.NumOut(); i++ {
+		if t.Out(i).Kind() == reflect.Func {
+			if err := checkUniversalTypes(t.Out(i)); err != nil {
+				return err
+			}
+			continue
+		}
+		for j := 0; j < len(universalTypes); j++ {
+			if t.Out(i) == universalTypes[j] {
+				return fmt.Errorf("pbeam.ParDo doesn't support DoFns with beam universal types, got function with %v", t.Out(i))
+			}
+		}
+	}
+	return nil
 }
 
 // buildFunctionalDoFn transforms the input functional doFn (without emit) into an anonDoFn.

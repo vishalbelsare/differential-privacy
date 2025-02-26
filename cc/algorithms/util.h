@@ -19,21 +19,21 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <numeric>
-#include <optional>
 #include <string>
 #include <type_traits>
 #include <vector>
 
-#include <cstdint>
-#include "base/logging.h"
 #include "absl/base/attributes.h"
+#include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
 #include "base/status_macros.h"
 
 namespace differential_privacy {
@@ -283,12 +283,13 @@ inline SafeOpResult<T> SafeCastFromDouble(const double in) {
   // the precise value itself), they can still have residual decimal values that
   // are outside of the numeric limits of T, which would cause a static_cast to
   // crash with a SIGILL error. To illustrate, if `d_out` == MAX_INT64, then
-  // `static_cast<int64_t>(d_out)` will cause a SIGILL error, because the precise
-  // value of d_out is actually larger than MAX_INT64 (i.e., at such large
-  // magnitudes, doubles are actually exact integers, but many fewer integers
-  // can be accurately represented, since the double-precision format can only
-  // inaccurately approximate them). To prevent this, we try to simply set `out`
-  // to the numerical limit when `d_out` is close enough to the numerical limit.
+  // `static_cast<int64_t>(d_out)` will cause a SIGILL error, because the
+  // precise value of d_out is actually larger than MAX_INT64 (i.e., at such
+  // large magnitudes, doubles are actually exact integers, but many fewer
+  // integers can be accurately represented, since the double-precision format
+  // can only inaccurately approximate them). To prevent this, we try to simply
+  // set `out` to the numerical limit when `d_out` is close enough to the
+  // numerical limit.
   T out;
   if (d_out_floor >= kTMax) {
     out = kTMax;
@@ -422,42 +423,42 @@ std::string VectorToString(const std::vector<T>& v) {
 // Otherwise, will return an `error_code` error that includes `name` in the
 // error message.
 absl::Status ValidateIsSet(
-    absl::optional<double> opt, absl::string_view name,
+    std::optional<double> opt, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
 // positive. Otherwise, will return an `error_code` error status that includes
 // `name` in the error message.
 absl::Status ValidateIsPositive(
-    absl::optional<double> opt, absl::string_view name,
+    std::optional<double> opt, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
 // non-negative. Otherwise, will return an `error_code` error status that
 // includes `name` in the error message.
 absl::Status ValidateIsNonNegative(
-    absl::optional<double> opt, absl::string_view name,
+    std::optional<double> opt, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
 // finite. Otherwise, will return an `error_code` error status that includes
 // `name` in the error message.
 absl::Status ValidateIsFinite(
-    absl::optional<double> opt, absl::string_view name,
+    std::optional<double> opt, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set, finite,
 // and positive. Otherwise, will return an `error_code` error status that
 // includes `name` in the error message.
 absl::Status ValidateIsFiniteAndPositive(
-    absl::optional<double> opt, absl::string_view name,
+    std::optional<double> opt, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set, finite,
 // and non-negative. Otherwise, will return an `error_code` error status that
 // includes `name` in the error message.
 absl::Status ValidateIsFiniteAndNonNegative(
-    absl::optional<double> opt, absl::string_view name,
+    std::optional<double> opt, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
@@ -465,7 +466,7 @@ absl::Status ValidateIsFiniteAndNonNegative(
 // Otherwise, will return an `error_code` error status that includes `name` in
 // the error message.
 absl::Status ValidateIsInInclusiveInterval(
-    absl::optional<double> opt, double lower_bound, double upper_bound,
+    std::optional<double> opt, double lower_bound, double upper_bound,
     absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
@@ -474,7 +475,7 @@ absl::Status ValidateIsInInclusiveInterval(
 // Otherwise, will return an `error_code` error status that includes `name` in
 // the error message.
 absl::Status ValidateIsInExclusiveInterval(
-    absl::optional<double> opt, double lower_bound, double upper_bound,
+    std::optional<double> opt, double lower_bound, double upper_bound,
     absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
@@ -482,28 +483,28 @@ absl::Status ValidateIsInExclusiveInterval(
 // strictly lesser than `upper_bound`. Otherwise, will return an `error_code`
 // error status that includes `name` in the error message.
 absl::Status ValidateIsLesserThan(
-    absl::optional<double> opt, double upper_bound, absl::string_view name,
+    std::optional<double> opt, double upper_bound, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
 // lesser than or equal to `upper_bound`. Otherwise, will return an `error_code`
 // error status that includes `name` in the error message.
 absl::Status ValidateIsLesserThanOrEqualTo(
-    absl::optional<double> opt, double upper_bound, absl::string_view name,
+    std::optional<double> opt, double upper_bound, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
 // strictly greater than `lower_bound`. Otherwise, will return an `error_code`
 // error status that includes `name` in the error message.
 absl::Status ValidateIsGreaterThan(
-    absl::optional<double> opt, double lower_bound, absl::string_view name,
+    std::optional<double> opt, double lower_bound, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
 // greater than or equal to `upper_bound`. Otherwise, will return an
 // `error_code` error status that includes `name` in the error message.
 absl::Status ValidateIsGreaterThanOrEqualTo(
-    absl::optional<double> opt, double lower_bound, absl::string_view name,
+    std::optional<double> opt, double lower_bound, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Returns absl::OkStatus() if the value of optional `opt` if it is set and
@@ -512,24 +513,26 @@ absl::Status ValidateIsGreaterThanOrEqualTo(
 // true, respectively. Otherwise, will return an `error_code` error status that
 // includes `name` in the error message.
 absl::Status ValidateIsInInterval(
-    absl::optional<double> opt, double lower_bound, double upper_bound,
+    std::optional<double> opt, double lower_bound, double upper_bound,
     bool include_lower, bool include_upper, absl::string_view name,
     absl::StatusCode error_code = absl::StatusCode::kInvalidArgument);
 
 // Methods for semantical and consistent validation of common parameters.
-absl::Status ValidateEpsilon(absl::optional<double> epsilon);
-absl::Status ValidateDelta(absl::optional<double> delta);
+absl::Status ValidateEpsilon(std::optional<double> epsilon);
+absl::Status ValidateDelta(std::optional<double> delta);
 absl::Status ValidateMaxPartitionsContributed(
-    absl::optional<double> max_partitions_contributed);
+    std::optional<double> max_partitions_contributed);
+absl::Status ValidateMaxWindows(std::optional<int> max_windows);
 absl::Status ValidateMaxContributionsPerPartition(
-    absl::optional<double> max_contributions_per_partition);
+    std::optional<double> max_contributions_per_partition);
+absl::Status ValidateMaxContributions(std::optional<int> max_contributions);
 
 // Validates common tree parameters.
-absl::Status ValidateTreeHeight(absl::optional<int> tree_height);
-absl::Status ValidateBranchingFactor(absl::optional<int> branching_factor);
+absl::Status ValidateTreeHeight(std::optional<int> tree_height);
+absl::Status ValidateBranchingFactor(std::optional<int> branching_factor);
 
 template <typename T>
-absl::Status ValidateBounds(absl::optional<T> lower, absl::optional<T> upper) {
+absl::Status ValidateBounds(std::optional<T> lower, std::optional<T> upper) {
   if (!lower.has_value() && !upper.has_value()) {
     return absl::OkStatus();
   }
@@ -543,9 +546,19 @@ absl::Status ValidateBounds(absl::optional<T> lower, absl::optional<T> upper) {
     return absl::InvalidArgumentError(
         "Lower bound cannot be greater than upper bound.");
   }
+  if (lower.value() == upper.value()) {
+    return absl::InvalidArgumentError(
+        "Lower bound cannot be equal to upper bound.");
+  }
   return absl::OkStatus();
 }
 
+absl::Status ValidatePreThresholdOptional(std::optional<int> pre_threshold);
+
+[[deprecated(
+    "This validator is used for a class that is deprecated in favour of the "
+    "pre_threshold attribute of other strategies classes.")]] absl::Status
+ValidatePreThreshold(std::optional<int64_t> pre_threshold);
 }  // namespace differential_privacy
 
 #endif  // DIFFERENTIAL_PRIVACY_ALGORITHMS_UTIL_H_

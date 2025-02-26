@@ -28,27 +28,11 @@ def cc_accounting_deps():
         sha256 = "93cfa11a344ad552472f7d93c228d55969ac586275692d73d5e7ce73a69b047f",
     )
 
-    # Begin GLog
-    http_archive(
-        name = "com_github_gflags_gflags",
-        sha256 = "34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf",
-        strip_prefix = "gflags-2.2.2",
-        urls = ["https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"],
-    )
-
-    http_archive(
-        name = "com_github_google_glog",
-        sha256 = "62efeb57ff70db9ea2129a16d0f908941e355d09d6d83c9f7b18557c0a7ab59e",
-        strip_prefix = "glog-d516278b1cd33cd148e8989aec488b6049a4ca0b",
-        urls = ["https://github.com/google/glog/archive/d516278b1cd33cd148e8989aec488b6049a4ca0b.zip"],
-    )
-    # End Glog
-
     # Begin Boost
     git_repository(
         name = "com_github_nelhage_rules_boost",
-        commit = "1e3a69bf2d5cd10c34b74f066054cd335d033d71",
+        commit = "f2494bf3b9de990889ae05a484e5f0fabf1fbdc9",
         remote = "https://github.com/nelhage/rules_boost",
-        shallow_since = "1591047380 -0700",
+        shallow_since = "1679023729 +0000",
     )
     # End boost

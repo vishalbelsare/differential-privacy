@@ -1,0 +1,59 @@
+# Copyright 2024 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+java_binary(
+    name = "SparkExample",
+    srcs = [
+        "SparkExample.java",
+    ],
+    main_class = "com.google.privacy.differentialprivacy.pipelinedp4j.examples.SparkExample",
+    deps = [
+        "//common/src/main/java/com/google/privacy/differentialprivacy/pipelinedp4j/examples:common",
+        "@com_google_privacy_differentialprivacy_pipielinedp4j//main/com/google/privacy/differentialprivacy/pipelinedp4j/api",
+        "@maven//:com_fasterxml_jackson_core_jackson_databind",
+        "@maven//:com_fasterxml_jackson_module_jackson_module_paranamer",
+        "@maven//:com_google_guava_guava",
+        "@maven//:info_picocli_picocli",
+        "@maven//:org_apache_spark_spark_catalyst_2_13",
+        "@maven//:org_apache_spark_spark_common_utils_2_13",
+        "@maven//:org_apache_spark_spark_core_2_13",
+        "@maven//:org_apache_spark_spark_mllib_2_13",
+        "@maven//:org_apache_spark_spark_sql_2_13",
+        "@maven//:org_apache_spark_spark_sql_api_2_13",
+        "@maven//:org_jetbrains_kotlin_kotlin_stdlib",
+        "@maven//:org_scala_lang_scala_library",
+    ],
+)
+
+java_binary(
+    name = "SparkDataFrameExample",
+    srcs = [
+        "SparkDataFrameExample.java",
+    ],
+    main_class = "com.google.privacy.differentialprivacy.pipelinedp4j.examples.SparkDataFrameExample",
+    deps = [
+        "//common/src/main/java/com/google/privacy/differentialprivacy/pipelinedp4j/examples:common",
+        "@com_google_privacy_differentialprivacy_pipielinedp4j//main/com/google/privacy/differentialprivacy/pipelinedp4j/api",
+        "@maven//:com_fasterxml_jackson_core_jackson_databind",
+        "@maven//:com_fasterxml_jackson_module_jackson_module_paranamer",
+        "@maven//:info_picocli_picocli",
+        "@maven//:org_apache_spark_spark_catalyst_2_13",
+        "@maven//:org_apache_spark_spark_core_2_13",
+        "@maven//:org_apache_spark_spark_mllib_2_13",
+        "@maven//:org_apache_spark_spark_sql_2_13",
+        "@maven//:org_apache_spark_spark_sql_api_2_13",
+        "@maven//:org_jetbrains_kotlin_kotlin_stdlib",
+        "@maven//:org_scala_lang_scala_library",
+    ],
+)

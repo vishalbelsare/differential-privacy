@@ -17,11 +17,22 @@
 #ifndef DIFFERENTIAL_PRIVACY_CPP_ALGORITHMS_QUANTILES_H_
 #define DIFFERENTIAL_PRIVACY_CPP_ALGORITHMS_QUANTILES_H_
 
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "absl/log/log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "algorithms/algorithm.h"
-#include "algorithms/bounded-algorithm.h"
+#include "algorithms/numerical-mechanisms.h"
 #include "algorithms/quantile-tree.h"
+#include "algorithms/util.h"
+#include "base/status_macros.h"
 
 namespace differential_privacy {
 
@@ -115,10 +126,10 @@ class Quantiles : public Algorithm<T> {
 
  private:
   Quantiles(std::unique_ptr<QuantileTree<T>> tree,
-                std::vector<double> quantiles, double epsilon, double delta,
-                int max_contributions_per_partition,
-                int max_partitions_contributed_to,
-                std::unique_ptr<NumericalMechanismBuilder> mechanism_builder)
+            std::vector<double> quantiles, double epsilon, double delta,
+            int max_contributions_per_partition,
+            int max_partitions_contributed_to,
+            std::unique_ptr<NumericalMechanismBuilder> mechanism_builder)
       : Algorithm<T>(epsilon, delta),
         tree_(std::move(tree)),
         quantiles_(quantiles),
@@ -229,14 +240,14 @@ class Quantiles<T>::Builder {
   }
 
  private:
-  absl::optional<double> epsilon_;
+  std::optional<double> epsilon_;
   double delta_ = 0;
-  absl::optional<T> upper_;
-  absl::optional<T> lower_;
+  std::optional<T> upper_;
+  std::optional<T> lower_;
   int max_partitions_contributed_ = 1;
   int max_contributions_per_partition_ = 1;
   std::unique_ptr<NumericalMechanismBuilder> mechanism_builder_ =
-      absl::make_unique<LaplaceMechanism::Builder>();
+      std::make_unique<LaplaceMechanism::Builder>();
   std::vector<double> quantiles_;
 
   static absl::Status ValidateQuantiles(std::vector<double>& quantiles) {
